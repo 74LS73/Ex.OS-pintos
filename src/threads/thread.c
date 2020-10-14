@@ -228,6 +228,27 @@ thread_block (void)
   schedule ();
 }
 
+/* 对于被阻塞的进程，block_time减一，否则唤醒 */
+void
+blocked_thread_tick_down (struct thread *t) 
+{
+  ASSERT (t->status == THREAD_BLOCKED);
+  
+  if (t->block_time > 0) {
+    t->block_time--;
+  }
+  else {
+    thread_unblock (t);
+  }
+}
+
+/* 对于被阻塞的进程，block_time减一，否则唤醒 */
+void
+find_blocked_thread_and_tick_down (void) 
+{
+  thread_foreach (blocked_thread_tick_down, NULL);
+}
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
