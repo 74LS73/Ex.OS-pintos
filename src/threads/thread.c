@@ -232,7 +232,7 @@ thread_block (void)
 void
 blocked_thread_tick_down (struct thread *t, void *aux) 
 {
-  ASSERT (t->status == THREAD_BLOCKED);
+  if (t->status != THREAD_BLOCKED) return;
   
   if (t->block_time > 0) {
     t->block_time--;
