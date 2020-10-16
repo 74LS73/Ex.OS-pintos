@@ -118,6 +118,8 @@ typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
+void blocked_thread_tick_down (struct thread *t, void *aux);
+void find_blocked_thread_and_tick_down (void);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);

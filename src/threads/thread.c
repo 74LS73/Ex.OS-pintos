@@ -230,7 +230,7 @@ thread_block (void)
 
 /* 对于被阻塞的进程，block_time减一，否则唤醒 */
 void
-blocked_thread_tick_down (struct thread *t) 
+blocked_thread_tick_down (struct thread *t, void *aux) 
 {
   ASSERT (t->status == THREAD_BLOCKED);
   
@@ -372,6 +372,15 @@ int
 thread_get_priority (void) 
 {
   return thread_current ()->priority;
+}
+
+/* TODO */
+bool
+compare_thread_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *ta = a - (unsigned long) (&((struct thread*)0)->elem);
+  struct thread *tb = b - (unsigned long) (&((struct thread*)0)->elem);
+  return ta->priority < tb->priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
