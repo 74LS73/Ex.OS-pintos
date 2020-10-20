@@ -472,7 +472,7 @@ init_thread(struct thread *t, const char *name, int priority)
   // CHANGE: wyhchris
   // list_push_back(&all_list, &t->allelem);
   enum intr_level old_level = intr_disable();
-  list_insert_ordered(&ready_list, &t->allelem, thread_priority_compare, NULL);
+  list_insert_ordered(&all_list, &t->allelem, thread_priority_compare, NULL);
   intr_set_level(old_level);
   // CHANGE END
 }
