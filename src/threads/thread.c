@@ -266,7 +266,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  // list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, compare_thread_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -337,7 +338,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, compare_thread_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -365,6 +366,11 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  struct thread *front_thread = list_pop_front (&ready_list) - (unsigned long) (&((struct thread*)0)->elem);
+  if (new_priority < front_thread->priority)
+    {
+      thread_block ();    
+    }
 }
 
 /* Returns the current thread's priority. */
@@ -380,7 +386,7 @@ compare_thread_priority (const struct list_elem *a, const struct list_elem *b, v
 {
   struct thread *ta = a - (unsigned long) (&((struct thread*)0)->elem);
   struct thread *tb = b - (unsigned long) (&((struct thread*)0)->elem);
-  return ta->priority < tb->priority;
+  return ta->priority > tb->priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -498,9 +504,11 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->donated_priority = PRI_MIN;
   t->magic = THREAD_MAGIC;
   t->block_time = 0;
-  list_push_back (&all_list, &t->allelem);
+  // list_push_back (&all_list, &t->allelem);
+  list_insert_ordered (&all_list, &t->allelem, compare_thread_priority, NULL);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
