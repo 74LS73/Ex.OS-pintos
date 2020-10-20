@@ -96,11 +96,16 @@ timer_sleep (int64_t ticks)
   // CHANGE: wyhchris
   // while (timer_elapsed (start) < ticks) 
   //  thread_yield ();
-  struct thread* current_thread = thread_current ();
-  current_thread->block_time = ticks;
-  enum intr_level old_level = intr_disable ();
-  thread_block ();
-  intr_set_level (old_level);
+  if(ticks <= 0)
+    thread_yield();
+  else
+  {
+    struct thread* current_thread = thread_current ();
+    current_thread->block_time = ticks;
+    enum intr_level old_level = intr_disable ();
+    thread_block ();
+    intr_set_level (old_level);
+  }
   // CHANGE END
 }
 
