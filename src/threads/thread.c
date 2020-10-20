@@ -232,13 +232,11 @@ thread_block (void)
 void
 blocked_thread_tick_down (struct thread *t, void *aux) 
 {
-  if (t->status != THREAD_BLOCKED) return;
-  
-  if (t->block_time > 0) {
+  if (t->status == THREAD_BLOCKED && t->block_time > 0) {
     t->block_time--;
-  }
-  else {
-    thread_unblock (t);
+    if (t->block_time == 0){
+      thread_unblock (t);
+    }
   }
 }
 
