@@ -68,8 +68,11 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
-      thread_block ();
+      // CHANGE: wyhchris
+      //list_push_back(&sema->waiters, &thread_current()->elem);
+      list_insert_ordered(&sema->waiters,&thread_current()->elem,thread_priority_compare,NULL);
+      // CHANGE END
+    thread_block();
     }
   sema->value--;
   intr_set_level (old_level);
@@ -178,6 +181,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  //list_init(&lock->block_threads);
   sema_init (&lock->semaphore, 1);
 }
 
@@ -196,8 +200,24 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+  // CHANGE: wyhchris
+  // sema_down (&lock->semaphore);
+  // lock->holder = thread_current ();
+  if (!lock_try_acquire(lock))
+  {
+    //list_insert_ordered(&lock->block_threads,&thread_current()->elem,thread_priority_compare,NULL);
+    int cur_priority = thread_get_priority();
+    struct thread *lock_holder_thread = lock->holder;
+    if(lock_holder_thread->priority < cur_priority)
+    {
+      if(lock_holder_thread->old_priority == -1)
+        lock_holder_thread->old_priority = lock_holder_thread->priority;
+      lock_holder_thread->priority = cur_priority;
+    }
+    sema_down (&lock->semaphore);
+    lock->holder = thread_current ();
+  }
+  // CHANGE END
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -233,6 +253,15 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  // CHANGE: wyhchris
+  struct thread *current_thread = thread_current();
+  if (current_thread->old_priority!=-1)
+  {
+    current_thread->priority = current_thread->old_priority;
+    current_thread->old_priority = -1;
+  }
+  thread_yield();
+  // CHANGE END
 }
 
 /* Returns true if the current thread holds LOCK, false

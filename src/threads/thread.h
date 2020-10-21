@@ -89,7 +89,12 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-    int64_t block_time;// CHANGE: wyhchris
+    // CHANGE: wyhchris
+    int64_t block_time;
+    //struct lock *trap_lock;
+    //  struct thread *trap_thread;
+    int old_priority;
+    // CHANGE END
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -137,5 +142,6 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+bool thread_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 #endif /* threads/thread.h */

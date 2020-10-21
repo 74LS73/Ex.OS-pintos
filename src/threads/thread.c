@@ -70,7 +70,7 @@ static void *alloc_frame(struct thread *, size_t size);
 static void schedule(void);
 void thread_schedule_tail(struct thread *prev);
 static tid_t allocate_tid(void);
-static bool thread_priority_compare(const struct list_elem *a,
+bool thread_priority_compare(const struct list_elem *a,
                                     const struct list_elem *b,
                                     void *aux); // CHANGE: wyhchris
 
@@ -206,6 +206,10 @@ tid_t thread_create(const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock(t);
+  // CHANGE: wyhchris
+  // yield see if thread just created has a higher priority 
+  thread_yield();
+  // CHANGE END
 
   return tid;
 }
@@ -341,6 +345,9 @@ void thread_foreach(thread_action_func *func, void *aux)
 void thread_set_priority(int new_priority)
 {
   thread_current()->priority = new_priority;
+  // CHANGE: wyhchris
+  thread_yield();
+  // CHANGE END
 }
 
 /* Returns the current thread's priority. */
@@ -455,8 +462,6 @@ is_thread(struct thread *t)
 static void
 init_thread(struct thread *t, const char *name, int priority)
 {
-
-
   ASSERT(t != NULL);
   ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT(name != NULL);
@@ -467,11 +472,13 @@ init_thread(struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *)t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  t->block_time = 0;
   
   // CHANGE: wyhchris
   // list_push_back(&all_list, &t->allelem);
   enum intr_level old_level = intr_disable();
+  t->block_time = 0;
+  t->old_priority = -1;
+  old_level = intr_disable();
   list_insert_ordered(&all_list, &t->allelem, thread_priority_compare, NULL);
   intr_set_level(old_level);
   // CHANGE END
@@ -591,7 +598,7 @@ allocate_tid(void)
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
 
 // CHANGE: wyhchris
-static bool thread_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux)
+bool thread_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux)
 {
   struct thread* thread_a= list_entry(a, struct thread, elem);
   struct thread* thread_b= list_entry(b, struct thread, elem);
