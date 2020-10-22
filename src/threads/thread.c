@@ -208,7 +208,9 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
+  /* yield to find currect thread */
+  thread_yield ();
+  
   return tid;
 }
 
@@ -364,11 +366,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  struct thread *front_thread = list_pop_front (&ready_list) - (unsigned long) (&((struct thread*)0)->elem);
-  if (new_priority < front_thread->priority)
-    {
-      thread_block ();    
-    }
+  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -382,8 +380,8 @@ thread_get_priority (void)
 bool
 compare_thread_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
 {
-  struct thread *ta = a - (unsigned long) (&((struct thread*)0)->elem);
-  struct thread *tb = b - (unsigned long) (&((struct thread*)0)->elem);
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
   return ta->priority > tb->priority;
 }
 
@@ -502,7 +500,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->old_priority = PRI_MIN;
+  t->old_priority = -1;
   t->magic = THREAD_MAGIC;
   t->block_time = 0;
   // list_push_back (&all_list, &t->allelem);
