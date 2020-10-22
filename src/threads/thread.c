@@ -502,7 +502,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->donated_priority = PRI_MIN;
+  t->old_priority = PRI_MIN;
   t->magic = THREAD_MAGIC;
   t->block_time = 0;
   // list_push_back (&all_list, &t->allelem);
