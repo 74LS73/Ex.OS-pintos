@@ -180,6 +180,17 @@ lock_init (struct lock *lock)
 
   lock->holder = NULL;
   sema_init (&lock->semaphore, 1);
+  lock->max_priority = 0;
+}
+
+/* From small to big
+*/
+bool
+compare_lock_max_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct lock *la = list_entry (a, struct lock, elem);
+  struct lock *lb = list_entry (b, struct lock, elem);
+  return la->max_priority > lb->max_priority;
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -199,20 +210,35 @@ lock_acquire (struct lock *lock)
 
   if (!lock_try_acquire (lock))
     {
+      // donate priority
+      thread_current ()->waiting_lock = lock;
       int current_priority = thread_get_priority ();
       struct thread* lock_holder_thread = lock->holder;
-      if (lock_holder_thread->priority < current_priority)
+      while (lock_holder_thread && lock_holder_thread->priority < current_priority)
         {
-          if (lock_holder_thread->old_priority == -1)
+          lock_holder_thread->priority = current_priority;
+          lock->max_priority = current_priority;
+          if (lock_holder_thread->waiting_lock)
             {
-              lock_holder_thread->old_priority = lock_holder_thread->priority;
+              lock_holder_thread = lock_holder_thread->waiting_lock->holder;
             }
-            lock_holder_thread->priority = current_priority;
+          else
+            break;
         }
       sema_down (&lock->semaphore);
       lock->holder = thread_current ();
     }
-
+    // ADD
+    struct thread *current_thread = thread_current ();
+    enum intr_level old_level;
+    old_level = intr_disable ();
+    if (lock->max_priority < current_thread->priority)
+      lock->max_priority = current_thread->priority;
+    list_insert_ordered (&thread_current ()->locks, &lock->elem, 
+                          compare_lock_max_priority, NULL);
+    current_thread->waiting_lock = NULL;
+    intr_set_level (old_level);
+    // END
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -249,11 +275,17 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
   struct thread *current_thread = thread_current ();
-  if (current_thread->old_priority != -1)
+  list_remove (&lock->elem);
+  if (!list_empty (&current_thread->locks))
     {
-      current_thread->priority = current_thread->old_priority;
-      current_thread->old_priority = -1;
+      int max_priority = list_entry (list_front (&current_thread->locks), 
+                                 struct lock, elem)->max_priority;
+      current_thread->priority = max_priority;
     }
+  else
+  {
+    current_thread->priority = current_thread->old_priority;
+  }
   thread_yield ();
 }
 
@@ -358,3 +390,4 @@ cond_broadcast (struct condition *cond, struct lock *lock)
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
 }
+

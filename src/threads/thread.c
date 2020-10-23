@@ -365,7 +365,11 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  thread_current ()->old_priority = new_priority;
+  if (list_empty (&thread_current ()->locks))
+    {
+      thread_current ()->priority = new_priority;
+    }
   thread_yield ();
 }
 
@@ -383,6 +387,12 @@ compare_thread_priority (const struct list_elem *a, const struct list_elem *b, v
   struct thread *ta = list_entry (a, struct thread, elem);
   struct thread *tb = list_entry (b, struct thread, elem);
   return ta->priority > tb->priority;
+}
+
+int
+thread_update_priority ()
+{
+  return 0;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -500,9 +510,11 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->old_priority = -1;
+  t->old_priority = priority;
   t->magic = THREAD_MAGIC;
   t->block_time = 0;
+  t->waiting_lock = NULL;
+  list_init (&t->locks);
   // list_push_back (&all_list, &t->allelem);
   list_insert_ordered (&all_list, &t->allelem, compare_thread_priority, NULL);
 }
@@ -620,3 +632,4 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+

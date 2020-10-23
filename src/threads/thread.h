@@ -91,7 +91,10 @@ struct thread
     int old_priority;                   /* Add old priority.  */
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t block_time;                 /* Add Block time. */
-
+    
+    struct list locks;                  /* All locks the thread has. */
+    struct lock *waiting_lock;          /* waiting lock */
+    
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -144,3 +147,4 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 #endif /* threads/thread.h */
+
