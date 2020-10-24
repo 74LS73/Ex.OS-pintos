@@ -389,12 +389,6 @@ compare_thread_priority (const struct list_elem *a, const struct list_elem *b, v
   return ta->priority > tb->priority;
 }
 
-int
-thread_update_priority ()
-{
-  return 0;
-}
-
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
