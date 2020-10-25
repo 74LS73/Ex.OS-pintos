@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed-point.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -89,6 +90,9 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     int old_priority;                   /* Add old priority.  */
+    int nice;                           /* Add nice. */
+    fixed_point recent_cpu;
+    
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t block_time;                 /* Add Block time. */
     
@@ -147,4 +151,5 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 #endif /* threads/thread.h */
+
 

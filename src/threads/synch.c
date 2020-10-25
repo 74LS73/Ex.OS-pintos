@@ -214,35 +214,43 @@ lock_acquire (struct lock *lock)
 
   if (!lock_try_acquire (lock))
     {
-      // donate priority
-      thread_current ()->waiting_lock = lock;
-      int current_priority = thread_get_priority ();
-      struct lock* l = lock;
-      while (l && l->max_priority < current_priority)
+      if (!thread_mlfqs)
         {
-          l->max_priority = current_priority;
-          l->holder->priority = current_priority;
-          if (l->holder->waiting_lock)
+          // donate priority
+          thread_current ()->waiting_lock = lock;
+          int current_priority = thread_get_priority ();
+          struct lock* l = lock;
+          while (l && l->max_priority < current_priority)
             {
-              l = l->holder->waiting_lock;
+              l->max_priority = current_priority;
+              l->holder->priority = current_priority;
+              if (l->holder->waiting_lock)
+                {
+                  l = l->holder->waiting_lock;
+                }
+              else
+                break;
             }
-          else
-            break;
         }
       sema_down (&lock->semaphore);
       lock->holder = thread_current ();
     }
-    // ADD
-    struct thread *current_thread = thread_current ();
-    enum intr_level old_level;
-    old_level = intr_disable ();
-    if (lock->max_priority < current_thread->priority)
-      lock->max_priority = current_thread->priority;
-    list_insert_ordered (&thread_current ()->locks, &lock->elem, 
-                          compare_lock_max_priority, NULL);
-    current_thread->waiting_lock = NULL;
-    intr_set_level (old_level);
-    // END
+    
+    if (!thread_mlfqs)
+    {
+      // ADD
+      struct thread *current_thread = thread_current ();
+      enum intr_level old_level;
+      old_level = intr_disable ();
+      if (lock->max_priority < current_thread->priority)
+        lock->max_priority = current_thread->priority;
+      list_insert_ordered (&thread_current ()->locks, &lock->elem, 
+                            compare_lock_max_priority, NULL);
+      current_thread->waiting_lock = NULL;
+      intr_set_level (old_level);
+      // END
+    }
+
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -277,18 +285,22 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   // ADD
-  struct thread *current_thread = thread_current ();
-  list_remove (&lock->elem);
-  if (!list_empty (&current_thread->locks))
+  if (!thread_mlfqs)
     {
-      int max_priority = list_entry (list_front (&current_thread->locks), 
-                                 struct lock, elem)->max_priority;
-      current_thread->priority = max_priority;
+      struct thread *current_thread = thread_current ();
+      list_remove (&lock->elem);
+      if (!list_empty (&current_thread->locks))
+        {
+          int max_priority = list_entry (list_front (&current_thread->locks), 
+                                     struct lock, elem)->max_priority;
+          current_thread->priority = max_priority;
+        }
+      else
+      {
+        current_thread->priority = current_thread->old_priority;
+      }
     }
-  else
-  {
-    current_thread->priority = current_thread->old_priority;
-  }
+
   // END
   lock->holder = NULL;
   sema_up (&lock->semaphore);
