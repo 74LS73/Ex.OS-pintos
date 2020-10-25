@@ -121,7 +121,10 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable();
   if (!list_empty(&sema->waiters))
   {
+    // CHANGE: wyhchris
+    // task2 priority schedule
     list_sort(&sema->waiters,thread_priority_compare,NULL);
+    // CHANGE END
     thread_unblock(list_entry(list_pop_front(&sema->waiters),
                               struct thread, elem));
   }
@@ -215,9 +218,18 @@ void lock_acquire(struct lock *lock)
   struct thread *cur_thread;
   // sema_down (&lock->semaphore);
   // lock->holder = thread_current ();
+  
+  // task3 mlfqs solution
+  if (thread_mlfqs) // mlfqs solution required, skip priority donation steps
+  {
+    sema_down (&lock->semaphore);
+    lock->holder = thread_current();
+    return;
+  }
+  
+  // task2 priority schedule solution
   if(!lock_try_acquire(lock))
   {
-    // wyhtry
     cur_priority = thread_get_priority();
     cur_thread = thread_current();
     cur_thread->waiting_lock = lock;
@@ -235,8 +247,7 @@ void lock_acquire(struct lock *lock)
     sema_down (&lock->semaphore);
     lock->holder = cur_thread;
   }
-  
-  // wyhtry
+
   cur_thread = thread_current ();
   old_level = intr_disable();
   cur_priority = thread_get_priority();
@@ -244,7 +255,6 @@ void lock_acquire(struct lock *lock)
   if(lock->highest_priority < cur_priority)
     lock->highest_priority = cur_priority;
   list_insert_ordered(&cur_thread->holding_locks,&lock->elem,lock_priority_compare,NULL);
-  
   intr_set_level(old_level);
   // CHANGE END
 }
@@ -280,13 +290,19 @@ void lock_release(struct lock *lock)
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
 
-  old_level = intr_disable();
+  
   // CHANGE: wyhchris
-  struct thread *cur_thread = thread_current();
-  list_remove(&lock->elem);
-  cur_thread->priority = thread_find_temp_priority(cur_thread);
-  intr_set_level(old_level);
-  //thread_yield();
+  // task2 solution
+  if(!thread_mlfqs) // task3 mlfqs solution need to skip these
+  {
+    old_level = intr_disable();
+    struct thread *cur_thread = thread_current();
+    // release lock, cause possible priority change
+    list_remove(&lock->elem); // remove lock from holding_locks list
+    cur_thread->priority = thread_find_temp_priority(cur_thread); // update priority
+    intr_set_level(old_level);
+    //thread_yield();
+  }
   // CHANGE END
 
   lock->holder = NULL;
@@ -387,7 +403,10 @@ cond_signal(struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty(&cond->waiters))
   {
+    // CHANGE: wyhchris
+    // task2 priority schedule
     list_sort(&cond->waiters, cond_priority_compare,NULL);
+    // CHANGE END
     sema_up(&list_entry(list_pop_front(&cond->waiters),
                         struct semaphore_elem, elem)
                  ->semaphore);

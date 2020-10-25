@@ -59,6 +59,11 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+// CHANGE: wyhchris
+/* system load average (real number)*/
+fixpt32_t load_avg;
+// CHANGE END
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -96,6 +101,12 @@ thread_init (void)
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
+  // CHANGE: wyhchris
+  /* initial recent_cpu and nice for initial thread , also load_avg */
+  load_avg = FPT32(0);
+  initial_thread->recent_cpu = FPT32(0);
+  initial_thread->nice = 0;
+  // CHANGE END
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -182,6 +193,10 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
+  // ADD: wyhchris
+  // recent_cpu inherite
+  t->recent_cpu = thread_current()->recent_cpu;
+  // ADD END
   tid = t->tid = allocate_tid ();
 
   /* Prepare thread for first run by initializing its stack.
@@ -229,25 +244,6 @@ thread_block (void)
 
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
-}
-
-/* 对于被阻塞的进程，block_time减一，否则唤醒 */
-void
-blocked_thread_tick_down (struct thread *t, void *aux) 
-{
-  if (t->status == THREAD_BLOCKED && t->block_time > 0) {
-    t->block_time--;
-    if (t->block_time == 0){
-      thread_unblock (t);
-    }
-  }
-}
-
-/* 对于被阻塞的进程，block_time减一，否则唤醒 */
-void
-find_blocked_thread_and_tick_down (void) 
-{
-  thread_foreach (blocked_thread_tick_down, NULL);
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -371,16 +367,21 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  // CHANGE: wyhchris
-  // thread_current()->priority = new_priority;
-  enum intr_level old_level = intr_disable ();
-  struct thread *cur_thread=thread_current();
-  cur_thread->old_priority = new_priority;
+// CHANGE: wyhchris
+  //thread_current()->priority = new_priority;
+  if (thread_mlfqs)
+    thread_current()->priority = new_priority;
+  else
+  {
+    enum intr_level old_level = intr_disable ();
+    struct thread *cur_thread=thread_current();
+    cur_thread->old_priority = new_priority;
 
-  if(new_priority > cur_thread->priority || list_empty(&cur_thread->holding_locks))
-    cur_thread->priority = new_priority;
-  thread_yield();
-  intr_set_level(old_level);
+    if(new_priority > cur_thread->priority || list_empty(&cur_thread->holding_locks))
+      cur_thread->priority = new_priority;
+    thread_yield();
+    intr_set_level(old_level);
+  }
   // CHANGE END
 }
 
@@ -405,6 +406,11 @@ void
 thread_set_nice (int nice UNUSED) 
 {
   /* Not yet implemented. */
+  // task3 mlfqs
+  struct thread* cur_thread = thread_current();
+  cur_thread->nice = nice;
+  thread_update_priority(cur_thread,NULL);
+  thread_yield();
 }
 
 /* Returns the current thread's nice value. */
@@ -412,7 +418,8 @@ int
 thread_get_nice (void) 
 {
   /* Not yet implemented. */
-  return 0;
+  // task3 mlfqs
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
@@ -420,7 +427,8 @@ int
 thread_get_load_avg (void) 
 {
   /* Not yet implemented. */
-  return 0;
+  // task3 mlfqs
+  return FPT_INTN(FPT_MUL_INT(load_avg,100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -428,7 +436,8 @@ int
 thread_get_recent_cpu (void) 
 {
   /* Not yet implemented. */
-  return 0;
+  // task3 mlfqs
+  return FPT_INTN(FPT_MUL_INT(thread_current()->recent_cpu,100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -521,13 +530,18 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   // CHANGE: wyhchris
-  // list_push_back(&all_list, &t->allelem);
+  // alarm-clock solution
   t->block_time = 0;
+
+  // priority-schedule solution
   t->old_priority = priority;
   t->waiting_lock = NULL;
   list_init(&t->holding_locks);
+  // CHANGE END
 
   old_level = intr_disable();
+  // CHANGE: wyhchris
+  // list_push_back(&all_list, &t->allelem);
   list_insert_ordered(&all_list, &t->allelem, thread_priority_compare, NULL);
   // CHANGE END
   intr_set_level(old_level);
@@ -649,13 +663,15 @@ uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
 
 // CHANGE: wyhchris
+// task2 priority schedule
 bool thread_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux)
 {
   struct thread* thread_a= list_entry(a, struct thread, elem);
   struct thread* thread_b= list_entry(b, struct thread, elem);
   return thread_a->priority > thread_b->priority;
 }
-// wyhtry
+
+// task2 priority schedule
 int thread_find_temp_priority(struct thread *thread)
 {
   enum intr_level old_level = intr_disable();
@@ -670,5 +686,43 @@ int thread_find_temp_priority(struct thread *thread)
   }
   intr_set_level(old_level);
   return max_priority;
+}
+
+// task3 mlfqs
+void thread_recent_cpu_increase(int amount)
+{
+  struct thread* cur_thread = thread_current();
+  // recent_cpu is incremented by 1 for the running thread only, unless the idle thread is running
+  if(cur_thread == idle_thread)
+    return;
+  cur_thread->recent_cpu = FPT_ADD_INT(cur_thread->recent_cpu,amount);
+}
+
+// task3 mlfqs
+void thread_update_priority(struct thread* t, void* aux)
+{
+  if(t == idle_thread)
+    return;
+  t->priority = FPT_INTZ(FPT_SUB(FPT_SUB(FPT32(PRI_MAX), FPT_DIV_INT(t->recent_cpu,4)),FPT32(t->nice*2)));
+  if(t->priority < PRI_MIN)
+    t->priority = PRI_MIN;
+  if(t->priority > PRI_MAX)
+    t->priority = PRI_MAX;
+}
+
+// task3 mlfqs
+void thread_update_recent_cpu(struct thread* t, void* aux)
+{
+  if(t == idle_thread)
+    return;
+  t->recent_cpu = FPT_ADD_INT(FPT_MUL(FPT_DIV(FPT_MUL_INT(load_avg,2),FPT_ADD_INT(FPT_MUL_INT(load_avg,2),1)),t->recent_cpu),t->nice);
+  thread_update_priority(t,aux);
+}
+
+// task3 mlfqs
+void thread_update_load_avg(void)
+{
+  size_t ready_threads = list_size(&ready_list)+(thread_current()==idle_thread?0:1);
+  load_avg = FPT_ADD(FPT_DIV_INT(FPT_MUL_INT(load_avg,59),60),FPT_DIV_INT(FPT32(ready_threads),60));
 }
 // CHANGE END

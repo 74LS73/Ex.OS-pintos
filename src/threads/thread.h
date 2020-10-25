@@ -5,6 +5,12 @@
 #include <list.h>
 #include <stdint.h>
 
+// CHANGE: wyhchris
+// task3 mlfqs
+// fixed-point calc lib
+#include <fixed-point.h>
+// CHANGE END
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -105,6 +111,10 @@ struct thread
   /* original priority
      should be changed only when base priority is changed (no such function, TODO:fulfill it if needed)*/
     int old_priority;
+  /* niceness of thread */
+    int nice;
+  /* recent cpu time */
+    fixpt32_t recent_cpu;
 
 //  Abandoned because thread_priority_compare use list_entry macro function
 //  elem and l_elem can't be treated as same
@@ -145,8 +155,6 @@ typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
-void blocked_thread_tick_down (struct thread *t, void *aux);
-void find_blocked_thread_and_tick_down (void);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);
@@ -162,17 +170,21 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-bool compare_thread_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+// CHANGE: wyhchris
+// task2 priority schedule
 bool thread_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux); // CHANGE: wyhchris
-int thread_find_temp_priority(struct thread *thread); // wyhtry
-void thread_get_lock(struct lock *lock); // wyhtry
-void thread_ready_list_insert(struct thread* thread); // wyhtry
-
+int thread_find_temp_priority(struct thread *thread); 
+// task3 mlfqs
+void thread_recent_cpu_increase(int amount); 
+void thread_update_recent_cpu(struct thread* t, void* aux);
+void thread_update_priority(struct thread* t, void* aux);
+void thread_update_load_avg(void);
+// CHANGE END
 
 #endif /* threads/thread.h */
 
