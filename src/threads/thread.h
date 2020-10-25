@@ -88,13 +88,36 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
-    int old_priority;                   /* Add old priority.  */
     struct list_elem allelem;           /* List element for all threads list. */
-    int64_t block_time;                 /* Add Block time. */
-    
-    struct list locks;                  /* All locks the thread has. */
-    struct lock *waiting_lock;          /* waiting lock */
-    
+
+    // CHANGE: wyhchris
+
+    // Thread-AlarmClock
+    int64_t block_time;                 /* Time Thread to block (ticks) */
+
+    // Thread-PrioritySchedule
+  /* locks that Thread already holds
+     used to find out temp priority */
+    struct list holding_locks;
+  /* lock that Thread wants (at a specific point of time, only one lock is wanted)
+     used to find out which thread (or a list of threads) should be donate */
+    struct lock* waiting_lock;
+  /* original priority
+     should be changed only when base priority is changed (no such function, TODO:fulfill it if needed)*/
+    int old_priority;
+
+//  Abandoned because thread_priority_compare use list_entry macro function
+//  elem and l_elem can't be treated as same
+//  can cause kernal crash
+//
+//   /* list element for lock->block_threads 
+//      CAREFUL! DO NOT USE elem when operating lock->block_threads*/
+//     struct list_elem l_elem;
+
+    //  struct thread *trap_thread;
+    // struct list waiters;// wyhtry update priority when waiters changed
+    // CHANGE END
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -145,6 +168,11 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+bool thread_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux); // CHANGE: wyhchris
+int thread_find_temp_priority(struct thread *thread); // wyhtry
+void thread_get_lock(struct lock *lock); // wyhtry
+void thread_ready_list_insert(struct thread* thread); // wyhtry
+
 
 #endif /* threads/thread.h */
 

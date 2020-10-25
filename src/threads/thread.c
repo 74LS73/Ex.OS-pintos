@@ -209,7 +209,8 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
   /* yield to find currect thread */
-  thread_yield ();
+  if(thread_current()->priority < priority)
+    thread_yield();
   
   return tid;
 }
@@ -266,8 +267,10 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  // list_push_back (&ready_list, &t->elem);
-  list_insert_ordered (&ready_list, &t->elem, compare_thread_priority, NULL);
+  // CHANGE: wyhchris
+  // list_push_back(&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem, thread_priority_compare, NULL);
+  // CHANGE END
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -331,17 +334,20 @@ thread_exit (void)
 void
 thread_yield (void) 
 {
-  struct thread *cur = thread_current ();
+  struct thread *cur = thread_current();
   enum intr_level old_level;
-  
-  ASSERT (!intr_context ());
 
-  old_level = intr_disable ();
-  if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, compare_thread_priority, NULL);
+  ASSERT(!intr_context());
+
+  old_level = intr_disable();
+  if (cur != idle_thread)
+    // CHANGE: wyhchris
+    // list_push_back(&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem, thread_priority_compare, NULL);
+    // CHANGE END
   cur->status = THREAD_READY;
-  schedule ();
-  intr_set_level (old_level);
+  schedule();
+  intr_set_level(old_level);
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
@@ -365,12 +371,17 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->old_priority = new_priority;
-  if (list_empty (&thread_current ()->locks))
-    {
-      thread_current ()->priority = new_priority;
-    }
-  thread_yield ();
+  // CHANGE: wyhchris
+  // thread_current()->priority = new_priority;
+  enum intr_level old_level = intr_disable ();
+  struct thread *cur_thread=thread_current();
+  cur_thread->old_priority = new_priority;
+
+  if(new_priority > cur_thread->priority || list_empty(&cur_thread->holding_locks))
+    cur_thread->priority = new_priority;
+  thread_yield();
+  intr_set_level(old_level);
+  // CHANGE END
 }
 
 /* Returns the current thread's priority. */
@@ -495,6 +506,8 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
+  enum intr_level old_level;
+
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
@@ -506,11 +519,18 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->old_priority = priority;
   t->magic = THREAD_MAGIC;
+
+  // CHANGE: wyhchris
+  // list_push_back(&all_list, &t->allelem);
   t->block_time = 0;
+  t->old_priority = priority;
   t->waiting_lock = NULL;
-  list_init (&t->locks);
-  // list_push_back (&all_list, &t->allelem);
-  list_insert_ordered (&all_list, &t->allelem, compare_thread_priority, NULL);
+  list_init(&t->holding_locks);
+
+  old_level = intr_disable();
+  list_insert_ordered(&all_list, &t->allelem, thread_priority_compare, NULL);
+  // CHANGE END
+  intr_set_level(old_level);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -627,3 +647,28 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
+
+// CHANGE: wyhchris
+bool thread_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread* thread_a= list_entry(a, struct thread, elem);
+  struct thread* thread_b= list_entry(b, struct thread, elem);
+  return thread_a->priority > thread_b->priority;
+}
+// wyhtry
+int thread_find_temp_priority(struct thread *thread)
+{
+  enum intr_level old_level = intr_disable();
+  int max_priority = thread->old_priority;
+  if(!list_empty(&thread->holding_locks))
+  {
+    struct lock *lk = list_entry (list_front(&thread->holding_locks), struct lock, elem);
+    if (lk->highest_priority > max_priority)
+    {
+      max_priority = lk->highest_priority;
+    }
+  }
+  intr_set_level(old_level);
+  return max_priority;
+}
+// CHANGE END
