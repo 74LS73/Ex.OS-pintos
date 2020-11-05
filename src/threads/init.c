@@ -98,7 +98,7 @@ main (void)
   palloc_init (user_page_limit);
   malloc_init ();
   paging_init ();
-
+  is_paging_init = 1;
   /* Segmentation. */
 #ifdef USERPROG
   tss_init ();
