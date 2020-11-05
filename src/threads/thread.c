@@ -62,6 +62,7 @@ bool thread_mlfqs;
 
 // ADD
 static fixed_point load_avg;      /* Fixed point val, the average load of the system. */
+static bool is_start = 0;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -120,6 +121,7 @@ thread_start (void)
 
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down (&idle_started);
+  is_start = 1;
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -228,6 +230,7 @@ thread_create (const char *name, int priority,
 void
 thread_block (void) 
 {
+  if (!is_start) return;
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
 
@@ -336,6 +339,7 @@ thread_exit (void)
 void
 thread_yield (void) 
 {
+  if (!is_start) return;
   struct thread *cur = thread_current ();
   enum intr_level old_level;
   
