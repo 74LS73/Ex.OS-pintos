@@ -1,7 +1,7 @@
 #ifndef FIXED_POINT_H
 #define FIXED_POINT_H
 
-typedef int fixed_point;
+typedef int32_t fixed_point;
 
 #define __f (1<<14)
 
