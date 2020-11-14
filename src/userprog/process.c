@@ -25,7 +25,7 @@ struct process
 {
   struct list_elem *current;
   struct semaphore init_process_sema;   //用于父进程等待子进程创建完毕
-  char *file_name;
+  char *cmd_line;
 };
 
 //END
@@ -38,7 +38,7 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *cmd_line) 
 {
   char *fn_copy;
   tid_t tid;
@@ -51,11 +51,14 @@ process_execute (const char *file_name)
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (fn_copy, cmd_line, PGSIZE);
 
   // ADD
-  process_info.file_name = fn_copy;
+
+  process_info.cmd_line = fn_copy;
   sema_init (&process_info.init_process_sema, 0);
+  char *file_name, *save_ptr; 
+  file_name = strtok_r (cmd_line, " ", &save_ptr);
   //END
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, &process_info);
@@ -75,7 +78,7 @@ static void
 start_process (void *process_info_)
 {
   struct process* cur_process = process_info_;
-  char *file_name = cur_process->file_name;
+  char *cmd_line = cur_process->cmd_line;
   struct intr_frame if_;
   bool success;
 
@@ -84,10 +87,10 @@ start_process (void *process_info_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (cmd_line, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (cmd_line);
   if (!success) 
     thread_exit ();
 
@@ -273,7 +276,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   int argc;
   char *argv[128];
   parse_command_args (cmd_line, &argc, argv);
-
+  
   /* Open executable file. */
   file = filesys_open (argv[0]);
   if (file == NULL) 
@@ -523,7 +526,6 @@ setup_stack (void **esp, int argc, char **argv)
           *esp -= 4;
           (*(int *)(*esp)) = argc;
           *esp -= 4;
-          hex_dump (*esp, *esp, 40, true);
         }
       else
         palloc_free_page (kpage);
@@ -559,8 +561,8 @@ parse_command_args (char *cmd_line, int *argc, char **argv)
   for (token = strtok_r (cmd_line, " ", &save_ptr); token != NULL;
       token = strtok_r (NULL, " ", &save_ptr))
     {
-      argv[*argc] = malloc (sizeof (token) + 1);
-      strlcpy (argv[*argc], token, sizeof(token)+1);
+      argv[*argc] = malloc (strlen (token) + 1);
+      strlcpy (argv[*argc], token, strlen(token)+1);
       (*argc)++;
     }
 }
