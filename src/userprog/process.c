@@ -16,7 +16,19 @@
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include "threads/vaddr.h"
+
+
+//ADD 仅用于在新建进程时传递信息
+struct process
+{
+  struct list_elem *current;
+  struct semaphore init_process_sema;   //用于父进程等待子进程创建完毕
+  char *file_name;
+};
+
+//END
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -30,6 +42,9 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+  //ADD
+  struct process process_info;
+  //END
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -38,19 +53,29 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  // ADD
+  process_info.file_name = fn_copy;
+  sema_init (&process_info.init_process_sema, 0);
+  //END
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, &process_info);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  
+  // ADD
+  sema_down (&process_info.init_process_sema);
+  list_push_back (&thread_current ()->children, process_info.current);
+  // END
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *process_info_)
 {
-  char *file_name = file_name_;
+  struct process* cur_process = process_info_;
+  char *file_name = cur_process->file_name;
   struct intr_frame if_;
   bool success;
 
@@ -65,6 +90,12 @@ start_process (void *file_name_)
   palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
+
+  // ADD 将father需要的信息通过struct process传回去
+  // 结束
+  cur_process->current = &thread_current ()->child_elem;
+  sema_up (&cur_process->init_process_sema);
+  // END
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -86,9 +117,20 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  struct list_elem *e;
+  struct thread* cur = thread_current ();
+  struct thread *child;
+  for (e = list_begin (&cur->children); e != list_end (&cur->children);
+       e = list_next (e))
+    {
+      child = list_entry (e, struct thread, child_elem);
+      if (child->tid == child_tid) {break;}
+    }
+  sema_down (&child->exit_sema);
+  list_remove (&child->child_elem);
+  return 0;
 }
 
 /* Free the current process's resources. */
@@ -114,6 +156,10 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  
+  // ADD
+  sema_up(&cur->exit_sema);
+  // END
 }
 
 /* Sets up the CPU for running user code in the current
@@ -195,7 +241,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, int argc, char **argv);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -221,8 +267,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  // 分解命令行参数
+  char cmd_line[128];
+  strlcpy(cmd_line, file_name, 128);
+  int argc;
+  char *argv[128];
+  parse_command_args (cmd_line, &argc, argv);
+
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (argv[0]);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -302,7 +355,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, argc, argv))
     goto done;
 
   /* Start address. */
@@ -427,7 +480,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, int argc, char **argv) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -437,7 +490,41 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        {
+          *esp = PHYS_BASE;
+          // ADD 开始填栈
+          // 1. 首先是argv里面的内容  
+          int i = argc;
+          // 1.0记录放到栈里之后首部的地址，以便第三步使用
+          uint32_t * arr[argc];
+          while (--i >= 0)
+            {
+              *esp -= sizeof (char) * (strlen(argv[i]) + 1);
+              arr[i] = (uint32_t *) *esp;
+              memcpy(*esp, argv[i], strlen(argv[i]) + 1);    
+            }
+          while ((int)(*esp) % 4) {
+            (*esp)--;
+          }
+          *esp  -= 4;  
+          // 2. 然后是一个占位的0
+          (*(int *)(*esp)) = 0;
+          // 3. 然后是argv[]的地址
+          i = argc;
+          while (--i >= 0) 
+            {
+              *esp -= 4;
+              (*(uint32_t **)(*esp)) = arr[i];
+            }
+          // 4. 然后是**argv的地址
+          *esp -= 4;
+          (*(uint32_t **)(*esp)) = (*esp + 4);
+          // 5. 最后是argc
+          *esp -= 4;
+          (*(int *)(*esp)) = argc;
+          *esp -= 4;
+          hex_dump (*esp, *esp, 40, true);
+        }
       else
         palloc_free_page (kpage);
     }
@@ -462,4 +549,18 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+void
+parse_command_args (char *cmd_line, int *argc, char **argv)
+{
+  char *token, *save_ptr;
+  *argc = 0;
+  for (token = strtok_r (cmd_line, " ", &save_ptr); token != NULL;
+      token = strtok_r (NULL, " ", &save_ptr))
+    {
+      argv[*argc] = malloc (sizeof (token) + 1);
+      strlcpy (argv[*argc], token, sizeof(token)+1);
+      (*argc)++;
+    }
 }

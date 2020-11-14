@@ -498,6 +498,41 @@ thread_all_update_recent_cpu (void)
 
   thread_foreach(thread_update_recent_cpu, NULL);
 }
+
+#ifdef USERPROG
+
+struct file * thread_get_file (int fd) 
+{
+  return thread_current () ->file_descriptor_table[fd];
+}
+
+int thread_add_file (struct file * file) 
+{
+  struct thread *t = thread_current ();
+  int i = 3;
+  while (i < 128) 
+    {
+      if (t->file_descriptor_table[i] == NULL) {
+        t->file_descriptor_table[i] = file;
+        return i;
+      }
+    }
+}
+
+void thread_remove_file (struct file * file) 
+{
+  struct thread *t = thread_current ();
+  int i = 3;
+  while (i < 128) 
+    {
+      if (t->file_descriptor_table[i] == file) {
+        t->file_descriptor_table[i] = NULL;
+        return;
+      }
+    }
+}
+
+#endif
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -589,6 +624,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->waiting_lock = NULL;
   t->recent_cpu = INT_TO_FP (0);
   t->nice = 0;
+#ifdef USERPROG
+  memset(t-> file_descriptor_table, 0, sizeof (t-> file_descriptor_table));
+  sema_init (&t->exit_sema, 0);
+  list_init (&t->children);
+#endif
   list_init (&t->locks);
   // list_push_back (&all_list, &t->allelem);
   list_insert_ordered (&all_list, &t->allelem, compare_thread_priority, NULL);
