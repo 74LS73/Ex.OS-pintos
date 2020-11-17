@@ -516,6 +516,7 @@ int thread_add_file (struct file * file)
         t->file_descriptor_table[i] = file;
         return i;
       }
+      i++;
     }
 }
 
