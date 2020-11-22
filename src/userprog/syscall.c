@@ -47,8 +47,7 @@ syscall_handler (struct intr_frame *f)
       {
         int status;
         get_user_value(f->esp + 4, &status, sizeof (status));
-        printf("%s: exit(%d)\n", thread_current()->name, status);
-        thread_exit (); 
+        sys_exit (status);
         break;
       }
     case SYS_EXEC:
@@ -64,13 +63,13 @@ syscall_handler (struct intr_frame *f)
       {
         tid_t child_tid;
         get_user_value(f->esp + 4, &child_tid, sizeof (child_tid));
-        process_wait (child_tid);
+        f->eax = process_wait (child_tid);
         break;
       }
     case SYS_CREATE:
       {
         lock_acquire (&filesys_lock);
-        char *name;
+        const char *name;
         off_t initial_size;
         get_user_value(f->esp + 4, &name, sizeof (name));
         get_user_value(f->esp + 8, &initial_size, sizeof (initial_size));
@@ -82,22 +81,32 @@ syscall_handler (struct intr_frame *f)
         break;
       }
     case SYS_REMOVE:
-      f->eax = filesys_remove (f->esp + 4);
-      break;
+      {
+        lock_acquire (&filesys_lock);
+        const char *name;
+        get_user_value(f->esp + 4, &name, sizeof (name));
+        f->eax = filesys_remove (name);
+        lock_release (&filesys_lock);
+        break;
+      }
     case SYS_OPEN:
       {
+        lock_acquire (&filesys_lock);
         const char *name;
         get_user_value (f->esp + 4, &name, sizeof (name));
         struct file *target_file = filesys_open (name);
         if (target_file == NULL) 
           f->eax = -1;
         else 
-          f->eax = thread_add_file (target_file);
+          f->eax = process_add_file (target_file);
+        lock_release (&filesys_lock);
         break;
       }
     case SYS_FILESIZE:
       {
-        struct file *target_file = thread_get_file (*(int *)(f->esp + 4));
+        int fd;
+        get_user_value (f->esp + 4, &fd, sizeof (fd));
+        struct file *target_file = process_get_file (fd);
         f->eax = file_length (target_file); 
         break; 
       }  
@@ -115,7 +124,7 @@ syscall_handler (struct intr_frame *f)
            input_getc ();
            break;
          }
-        struct file *target_file = thread_get_file (fd);
+        struct file *target_file = process_get_file (fd);
         f->eax = file_read (target_file, buffer, size); 
         lock_release (&filesys_lock);
         break; 
@@ -135,7 +144,7 @@ syscall_handler (struct intr_frame *f)
           } 
         else
           {
-            struct file *target_file = thread_get_file (fd);
+            struct file *target_file = process_get_file (fd);
             f->eax = file_write (target_file, buffer, size);
           }
         lock_release (&filesys_lock);
@@ -143,13 +152,19 @@ syscall_handler (struct intr_frame *f)
        }
     case SYS_SEEK:
       {
-        struct file *target_file = thread_get_file (*(int *)(f->esp + 4));
-        file_seek (target_file, *(int *)(f->esp + 8));
+        int fd;
+        off_t new_pos;
+        get_user_value (f->esp + 4, &fd, sizeof (fd));
+        get_user_value (f->esp + 8, &new_pos, sizeof (new_pos));
+        struct file *target_file = process_get_file (fd);
+        file_seek (target_file, new_pos);
         break; 
       }
     case SYS_TELL:
       {
-        struct file *target_file = thread_get_file (*(int *)(f->esp + 4));
+        int fd;
+        get_user_value (f->esp + 4, &fd, sizeof (fd));
+        struct file *target_file = process_get_file (fd);
         f->eax = file_tell (target_file);
         break; 
       }  
@@ -157,8 +172,8 @@ syscall_handler (struct intr_frame *f)
       {
         const char *name;
         get_user_value (f->esp + 4, &name, sizeof (name));
-        struct file *target_file = thread_get_file (name);
-        thread_remove_file (target_file);
+        struct file *target_file = process_get_file (name);
+        process_remove_file (target_file);
         file_close (target_file);
         break; 
       }
@@ -168,13 +183,15 @@ syscall_handler (struct intr_frame *f)
         break;
       }
     }
-  // thread_exit ();
+  // sys_exit (-1);
 }
 
 int 
 sys_exit (int status) 
 {
-  printf("%s: exit(%d)\n", thread_current()->name, status);
+  struct thread* cur = thread_current ();
+  cur->process->exit_status = status;
+  printf("%s: exit(%d)\n", cur->name, status);
   thread_exit (); 
 }
 
@@ -225,3 +242,4 @@ put_user (uint8_t *udst, uint8_t byte)
        : "=&a" (error_code), "=m" (*udst) : "q" (byte));
   return error_code != -1;
 }
+

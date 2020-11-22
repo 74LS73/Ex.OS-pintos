@@ -20,16 +20,6 @@
 #include "threads/vaddr.h"
 
 
-//ADD 仅用于在新建进程时传递信息
-struct process
-{
-  struct list_elem *current;
-  struct semaphore init_process_sema;   //用于父进程等待子进程创建完毕
-  char *cmd_line;
-};
-
-//END
-
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
@@ -37,13 +27,13 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-tid_t
+pid_t
 process_execute (const char *cmd_line) 
 {
   char *fn_copy;
   tid_t tid;
   //ADD
-  struct process process_info;
+  struct process *p = palloc_get_page(0);
   //END
 
   /* Make a copy of FILE_NAME.
@@ -55,19 +45,27 @@ process_execute (const char *cmd_line)
 
   // ADD
 
-  process_info.cmd_line = fn_copy;
-  sema_init (&process_info.init_process_sema, 0);
+  p->cmd_line = fn_copy;
+  memset(p-> file_descriptor_table, 0, sizeof (p-> file_descriptor_table));
+  sema_init (&p->exit_sema, 0);
+  lock_init (&p->ensure_once_wait);
+  sema_init (&p->init_process_sema, 0);
+
   char *file_name, *save_ptr; 
   file_name = strtok_r (cmd_line, " ", &save_ptr);
   //END
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, &process_info);
+  
+    
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, p);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   
   // ADD
-  sema_down (&process_info.init_process_sema);
-  list_push_back (&thread_current ()->children, process_info.current);
+  p->pid = tid;
+  sema_down (&p->init_process_sema);
+  list_push_back (&thread_current ()->children, &p->child_elem);
+  
   // END
   return tid;
 }
@@ -75,9 +73,9 @@ process_execute (const char *cmd_line)
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *process_info_)
+start_process (void *process_)
 {
-  struct process* cur_process = process_info_;
+  struct process* cur_process = process_;
   char *cmd_line = cur_process->cmd_line;
   struct intr_frame if_;
   bool success;
@@ -96,7 +94,7 @@ start_process (void *process_info_)
 
   // ADD 将father需要的信息通过struct process传回去
   // 结束
-  cur_process->current = &thread_current ()->child_elem;
+  thread_current ()->process = cur_process;
   sema_up (&cur_process->init_process_sema);
   // END
 
@@ -120,20 +118,27 @@ start_process (void *process_info_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid) 
+process_wait (pid_t child_pid) 
 {
   struct list_elem *e;
   struct thread* cur = thread_current ();
-  struct thread *child;
+  struct process *child;
+  bool is_find = false;
   for (e = list_begin (&cur->children); e != list_end (&cur->children);
        e = list_next (e))
     {
-      child = list_entry (e, struct thread, child_elem);
-      if (child->tid == child_tid) {break;}
+      child = list_entry (e, struct process, child_elem);
+      if (child->pid == child_pid) {is_find = true; break;}
     }
-  sema_down (&child->exit_sema);
-  list_remove (&child->child_elem);
-  return 0;
+  // 如果是子程序，并且是第一次对这个子程序调用wait
+  if (is_find != NULL && lock_try_acquire (&child->ensure_once_wait)) 
+    {
+      sema_down (&child->exit_sema);
+      list_remove (&child->child_elem);
+      palloc_free_page (child);
+      return child->exit_status; 
+    }
+  return -1;
 }
 
 /* Free the current process's resources. */
@@ -141,6 +146,7 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  struct process *p = cur->process;
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
@@ -161,7 +167,7 @@ process_exit (void)
     }
   
   // ADD
-  sema_up(&cur->exit_sema);
+  sema_up(&p->exit_sema);
   // END
 }
 
@@ -566,3 +572,42 @@ parse_command_args (char *cmd_line, int *argc, char **argv)
       (*argc)++;
     }
 }
+
+
+//ADD
+struct file *
+process_get_file (int fd) 
+{
+  return thread_current () -> process ->file_descriptor_table[fd];
+}
+
+int 
+process_add_file (struct file * file) 
+{
+  struct process *p = thread_current ()->process;
+  int i = 3;
+  while (i < 128) 
+    {
+      if (p->file_descriptor_table[i] == NULL) {
+        p->file_descriptor_table[i] = file;
+        return i;
+      }
+      i++;
+    }
+}
+
+void 
+process_remove_file (struct file * file) 
+{
+  struct process *p = thread_current ()->process;
+  int i = 3;
+  while (i < 128) 
+    {
+      if (p->file_descriptor_table[i] == file) {
+        p->file_descriptor_table[i] = NULL;
+        return;
+      }
+    }
+}
+
+//END

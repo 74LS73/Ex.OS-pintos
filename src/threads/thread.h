@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
+#ifdef USERPROG
+#include "userprog/process.h"
+#endif
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -106,10 +109,8 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    struct semaphore exit_sema;
-    struct file * file_descriptor_table[128]; /* 需要储存每个线程的file */
-    struct list children;
-    struct list_elem child_elem;
+    struct list children;                    //子进程列表
+    struct process *process;
 #endif
 
     /* Owned by thread.c. */
@@ -155,12 +156,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-#ifdef USERPROG
-struct file * thread_get_file (int);
-int thread_add_file (struct file * file);
-void thread_remove_file (struct file * file);
-#endif
-
 #endif /* threads/thread.h */
+
 
 
