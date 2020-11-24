@@ -47,12 +47,13 @@ process_execute (const char *cmd_line)
   strlcpy (fn_copy, cmd_line, PGSIZE);
 
   // ADD
-
+  // 初始化很重要
   p->cmd_line = fn_copy;
   memset(p-> file_descriptor_table, 0, sizeof (p-> file_descriptor_table));
   sema_init (&p->exit_sema, 0);
   lock_init (&p->ensure_once_wait);
   sema_init (&p->init_process_sema, 0);
+  p->executing_file = NULL;
 
   char *file_name, *save_ptr; 
   file_name = palloc_get_page (0);
@@ -70,12 +71,11 @@ process_execute (const char *cmd_line)
     palloc_free_page (fn_copy); 
   
   // ADD
-  p->pid = tid;
   sema_down (&p->init_process_sema);
   list_push_back (&thread_current ()->children, &p->child_elem);
-  
   // END
-  return tid;
+  
+  return p->pid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -84,6 +84,9 @@ static void
 start_process (void *process_)
 {
   struct process* cur_process = process_;
+  struct thread*  cur_thread  = thread_current ();
+  cur_thread -> process = cur_process;
+
   char *cmd_line = cur_process->cmd_line;
   struct intr_frame if_;
   bool success;
@@ -95,16 +98,16 @@ start_process (void *process_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (cmd_line, &if_.eip, &if_.esp);
 
+  // ADD 将father需要的信息通过struct process传回去
+  // 结束
+  cur_process->pid = success ? cur_thread->tid : TID_ERROR;
+  sema_up (&cur_process->init_process_sema);
+  // END
+  
   /* If load failed, quit. */
   palloc_free_page (cmd_line);
   if (!success) 
     thread_exit ();
-
-  // ADD 将father需要的信息通过struct process传回去
-  // 结束
-  thread_current ()->process = cur_process;
-  sema_up (&cur_process->init_process_sema);
-  // END
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -140,7 +143,7 @@ process_wait (pid_t child_pid)
       if (child->pid == child_pid) {is_find = true; break;}
     }
   // 如果是子程序，并且是第一次对这个子程序调用wait
-  if (is_find != NULL && lock_try_acquire (&child->ensure_once_wait)) 
+  if (is_find && lock_try_acquire (&child->ensure_once_wait)) 
     {
       sema_down (&child->exit_sema);
       list_remove (&child->child_elem);
@@ -180,6 +183,9 @@ process_exit (void)
     }
   
   // ADD
+  // 有可能是加载文件失败的程序
+  if (p->executing_file != NULL)
+    file_allow_write (p->executing_file);
   sema_up(&p->exit_sema);
   // END
 }
@@ -384,7 +390,16 @@ load (const char *file_name, void (**eip) (void), void **esp)
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
-
+  
+  //ADD
+  // 防止当前运行文件被写
+  // 所以就保持文件开启
+  // 故直接返回
+  file_deny_write (file);
+  t->process->executing_file = file;
+  return success;
+  //END
+  
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);

@@ -19,6 +19,7 @@ struct process
   struct file *file_descriptor_table[128]; /* 需要储存每个线程的file */
   struct semaphore exit_sema;         /* 程序退出型号量，用于父子进程同步 */
   int exit_status;                    /* 程序退出状态码 */
+  struct file *executing_file;        /* 本进程正在使用的文件 */
   struct lock ensure_once_wait;
 };
 
