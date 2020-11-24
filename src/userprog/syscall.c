@@ -224,7 +224,7 @@ check_uaddr (const uint8_t *uaddr)
     access_invalid_uaddr ();
 }
 
-/* [uaddr, uaddr+size)的检查
+/* [uaddr, uaddr+size]的检查
 */
 static void 
 check_uaddr_size (const uint8_t *uaddr, size_t size) 
