@@ -22,6 +22,9 @@ struct process
   struct lock ensure_once_wait;
 };
 
+#define FD_START 3                  //fd起始值
+#define FD_END   127                //fd终止值
+
 //END
 
 

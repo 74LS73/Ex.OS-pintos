@@ -147,7 +147,18 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
-
+  
+  //ADD
+  //针对 get_user的处理
+  if(!user) // 如果是内核态,(即在处理syscall时)
+    {
+      f->eip = (void *) f->eax;   // 重置eip
+      f->eax = 0xffffffff;        // 返回-1
+      return;
+    }
+  sys_exit (-1);                  //否则为用户态出现page_fault
+  //END
+  
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */

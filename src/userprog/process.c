@@ -34,6 +34,9 @@ process_execute (const char *cmd_line)
   tid_t tid;
   //ADD
   struct process *p = palloc_get_page(0);
+  if (p == NULL) {
+    return TID_ERROR;
+  }
   //END
 
   /* Make a copy of FILE_NAME.
@@ -52,7 +55,12 @@ process_execute (const char *cmd_line)
   sema_init (&p->init_process_sema, 0);
 
   char *file_name, *save_ptr; 
-  file_name = strtok_r (cmd_line, " ", &save_ptr);
+  file_name = palloc_get_page (0);
+  if (file_name == NULL) {
+    return TID_ERROR;
+  }
+  strlcpy (file_name, cmd_line, PGSIZE);
+  file_name = strtok_r (file_name, " ", &save_ptr);
   //END
   /* Create a new thread to execute FILE_NAME. */
   
@@ -123,6 +131,7 @@ process_wait (pid_t child_pid)
   struct list_elem *e;
   struct thread* cur = thread_current ();
   struct process *child;
+  int status;
   bool is_find = false;
   for (e = list_begin (&cur->children); e != list_end (&cur->children);
        e = list_next (e))
@@ -135,10 +144,14 @@ process_wait (pid_t child_pid)
     {
       sema_down (&child->exit_sema);
       list_remove (&child->child_elem);
-      palloc_free_page (child);
-      return child->exit_status; 
+      status = child->exit_status; 
     }
-  return -1;
+  else
+    {
+      status = -1;
+    }
+  palloc_free_page(child);
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -578,12 +591,16 @@ parse_command_args (char *cmd_line, int *argc, char **argv)
 struct file *
 process_get_file (int fd) 
 {
-  return thread_current () -> process ->file_descriptor_table[fd];
+  if (fd >= FD_START && fd <= FD_END)
+    return thread_current () -> process ->file_descriptor_table[fd];
+  else return NULL;
 }
 
 int 
 process_add_file (struct file * file) 
 {
+  if (file == NULL) 
+    return -1;
   struct process *p = thread_current ()->process;
   int i = 3;
   while (i < 128) 
@@ -600,8 +617,8 @@ void
 process_remove_file (struct file * file) 
 {
   struct process *p = thread_current ()->process;
-  int i = 3;
-  while (i < 128) 
+  int i = FD_START;
+  while (i <= FD_END) 
     {
       if (p->file_descriptor_table[i] == file) {
         p->file_descriptor_table[i] = NULL;
