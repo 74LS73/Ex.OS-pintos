@@ -49,6 +49,7 @@ process_execute (const char *cmd_line)
   // ADD
   // 初始化很重要
   p->cmd_line = fn_copy;
+  p->pid = -1;
   memset(p-> file_descriptor_table, 0, sizeof (p-> file_descriptor_table));
   sema_init (&p->exit_sema, 0);
   lock_init (&p->ensure_once_wait);
@@ -68,13 +69,20 @@ process_execute (const char *cmd_line)
     
   tid = thread_create (file_name, PRI_DEFAULT, start_process, p);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
-  
+    {
+      palloc_free_page (fn_copy); 
+      palloc_free_page (p); 
+      palloc_free_page (file_name); 
+      return -1;
+    }
   // ADD
-  sema_down (&p->init_process_sema);
-  list_push_back (&thread_current ()->children, &p->child_elem);
+  else 
+    {
+      sema_down (&p->init_process_sema);
+      list_push_back (&thread_current ()->children, &p->child_elem);
+    }
   // END
-  
+  palloc_free_page (file_name); 
   return p->pid;
 }
 
@@ -148,12 +156,12 @@ process_wait (pid_t child_pid)
       sema_down (&child->exit_sema);
       list_remove (&child->child_elem);
       status = child->exit_status; 
+      palloc_free_page (child);
     }
   else
     {
       status = -1;
     }
-  palloc_free_page(child);
   return status;
 }
 
@@ -296,11 +304,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   // 分解命令行参数
-  char cmd_line[128];
-  strlcpy(cmd_line, file_name, 128);
+/*  char cmd_line[128];*/
+/*  strlcpy(cmd_line, file_name, 128);*/
   int argc;
   char *argv[128];
-  parse_command_args (cmd_line, &argc, argv);
+  parse_command_args (file_name, &argc, argv);
   
   /* Open executable file. */
   file = filesys_open (argv[0]);
