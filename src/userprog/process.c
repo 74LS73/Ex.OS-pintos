@@ -172,7 +172,21 @@ process_exit (void)
   struct thread *cur = thread_current ();
   struct process *p = cur->process;
   uint32_t *pd;
-
+  
+  //ADD 关闭所有打开的文件
+  int i = FD_START;
+  while (i <= FD_END) 
+    {
+    
+      if (p->file_descriptor_table[i] != NULL) {
+        file_close (p->file_descriptor_table[i]);
+        p->file_descriptor_table[i] = NULL;
+      }
+      i++;
+    }
+  //END
+  
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -403,6 +417,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   // 防止当前运行文件被写
   // 所以就保持文件开启
   // 故直接返回
+  //int i = 0;
+  for (i=0;i<argc;i++)
+    {
+      free(argv[i]);
+    }
   file_deny_write (file);
   t->process->executing_file = file;
   return success;
@@ -410,6 +429,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   
  done:
   /* We arrive here whether the load is successful or not. */
+  for (i=0;i<argc;i++)
+    {
+      free(argv[i]);
+    }
   file_close (file);
   return success;
 }
@@ -625,8 +648,8 @@ process_add_file (struct file * file)
   if (file == NULL) 
     return -1;
   struct process *p = thread_current ()->process;
-  int i = 3;
-  while (i < 128) 
+  int i = FD_START;
+  while (i <= FD_END) 
     {
       if (p->file_descriptor_table[i] == NULL) {
         p->file_descriptor_table[i] = file;
@@ -647,6 +670,7 @@ process_remove_file (struct file * file)
         p->file_descriptor_table[i] = NULL;
         return;
       }
+      i++;
     }
 }
 
