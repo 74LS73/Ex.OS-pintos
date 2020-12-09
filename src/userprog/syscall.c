@@ -57,7 +57,7 @@ syscall_handler (struct intr_frame *f)
         lock_acquire (&filesys_lock);
         const char *cmd_line;
         get_user_value(f->esp + 4, &cmd_line, sizeof (cmd_line));
-        check_uaddr (cmd_line);
+        check_uaddr_size (cmd_line,1);
         f->eax = process_execute (cmd_line);
         lock_release (&filesys_lock);
         break;
