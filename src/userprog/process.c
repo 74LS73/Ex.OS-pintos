@@ -16,7 +16,9 @@
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include "threads/vaddr.h"
+
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -25,32 +27,81 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-tid_t
-process_execute (const char *file_name) 
+pid_t
+process_execute (const char *cmd_line) 
 {
   char *fn_copy;
   tid_t tid;
-
+  //ADD
+  struct process *p = palloc_get_page(0);
+  if (p == NULL) {
+    return TID_ERROR;
+  }
+  //END
+  //printf("----------p1---------\n");
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
+  //printf("----------p2---------\n");
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  //printf("----------p3---------\n");
+  // printf("%d\n",strlen (cmd_line));
+  // printf("%s\n",cmd_line);
+  
+  strlcpy (fn_copy, cmd_line, PGSIZE);
+  //printf("----------above---------\n");
+  // ADD
+  // 初始化很重要
+  p->cmd_line = fn_copy;
+  p->pid = -1;
+  memset(p-> file_descriptor_table, 0, sizeof (p-> file_descriptor_table));
+  sema_init (&p->exit_sema, 0);
+  lock_init (&p->ensure_once_wait);
+  sema_init (&p->init_process_sema, 0);
+  p->executing_file = NULL;
 
+
+  char *file_name, *save_ptr; 
+  file_name = palloc_get_page (0);
+  if (file_name == NULL) {
+    return TID_ERROR;
+  }
+  strlcpy (file_name, cmd_line, PGSIZE);
+  file_name = strtok_r (file_name, " ", &save_ptr);
+  //END
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  
+    
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, p);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
-  return tid;
+    {
+      palloc_free_page (file_name); 
+      palloc_free_page (fn_copy); 
+      palloc_free_page (p); 
+      return -1;
+    }
+  // ADD
+  else 
+    {
+      sema_down (&p->init_process_sema);
+      list_push_back (&thread_current ()->children, &p->child_elem);
+    }
+  // END
+  palloc_free_page (file_name); 
+  return p->pid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *process_)
 {
-  char *file_name = file_name_;
+  struct process* cur_process = process_;
+  struct thread*  cur_thread  = thread_current ();
+  cur_thread -> process = cur_process;
+
+  char *cmd_line = cur_process->cmd_line;
   struct intr_frame if_;
   bool success;
 
@@ -59,10 +110,16 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (cmd_line, &if_.eip, &if_.esp);
 
+  // ADD 将father需要的信息通过struct process传回去
+  // 结束
+  cur_process->pid = success ? cur_thread->tid : TID_ERROR;
+  sema_up (&cur_process->init_process_sema);
+  // END
+  
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (cmd_line);
   if (!success) 
     thread_exit ();
 
@@ -86,9 +143,32 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (pid_t child_pid) 
 {
-  return -1;
+  struct list_elem *e;
+  struct thread* cur = thread_current ();
+  struct process *child;
+  int status;
+  bool is_find = false;
+  for (e = list_begin (&cur->children); e != list_end (&cur->children);
+       e = list_next (e))
+    {
+      child = list_entry (e, struct process, child_elem);
+      if (child->pid == child_pid) {is_find = true; break;}
+    }
+  // 如果是子程序，并且是第一次对这个子程序调用wait
+  if (is_find && lock_try_acquire (&child->ensure_once_wait)) 
+    {
+      sema_down (&child->exit_sema);
+      list_remove (&child->child_elem);
+      status = child->exit_status; 
+      palloc_free_page (child);
+    }
+  else
+    {
+      status = -1;
+    }
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -96,7 +176,22 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  struct process *p = cur->process;
   uint32_t *pd;
+
+
+  //ADD 关闭所有打开的文件
+  int i = FD_START;
+  while (i <= FD_END) 
+    {
+    
+      if (p->file_descriptor_table[i] != NULL) {
+        file_close (p->file_descriptor_table[i]);
+        p->file_descriptor_table[i] = NULL;
+      }
+      i++;
+    }
+  //END
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -114,6 +209,15 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  
+  // ADD
+  // 有可能是加载文件失败的程序
+  if (p->executing_file != NULL)
+    file_allow_write (p->executing_file);
+  sema_up(&p->exit_sema);
+
+  //palloc_free_page (p);
+  // END
 }
 
 /* Sets up the CPU for running user code in the current
@@ -195,7 +299,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, int argc, char **argv);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -221,8 +325,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  // 分解命令行参数
+/*  char cmd_line[128];*/
+/*  strlcpy(cmd_line, file_name, 128);*/
+  int argc;
+  char *argv[128];
+  parse_command_args (file_name, &argc, argv);
+  
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (argv[0]);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -302,18 +413,38 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, argc, argv))
     goto done;
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
-
+  
+  //ADD
+  // 防止当前运行文件被写
+  // 所以就保持文件开启
+  // 故直接返回
+  free_argv(argc,argv);
+  file_deny_write (file);
+  t->process->executing_file = file;
+  return success;
+  //END
+  
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  free_argv(argc,argv);
   return success;
+}
+
+void
+free_argv(int argc, char **argv)
+{
+  for(int i=0;i<argc;i++)
+  {
+    free(argv[i]);
+  }
 }
 
 /* load() helpers. */
@@ -387,6 +518,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
+  //printf ("upage = %x\n",upage);
+
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
@@ -427,7 +560,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, int argc, char **argv) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -437,7 +570,40 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        {
+          *esp = PHYS_BASE;
+          // ADD 开始填栈
+          // 1. 首先是argv里面的内容  
+          int i = argc;
+          // 1.0记录放到栈里之后首部的地址，以便第三步使用
+          uint32_t * arr[argc];
+          while (--i >= 0)
+            {
+              *esp -= sizeof (char) * (strlen(argv[i]) + 1);
+              arr[i] = (uint32_t *) *esp;
+              memcpy(*esp, argv[i], strlen(argv[i]) + 1);    
+            }
+          while ((int)(*esp) % 4) {
+            (*esp)--;
+          }
+          *esp  -= 4;  
+          // 2. 然后是一个占位的0
+          (*(int *)(*esp)) = 0;
+          // 3. 然后是argv[]的地址
+          i = argc;
+          while (--i >= 0) 
+            {
+              *esp -= 4;
+              (*(uint32_t **)(*esp)) = arr[i];
+            }
+          // 4. 然后是**argv的地址
+          *esp -= 4;
+          (*(uint32_t **)(*esp)) = (*esp + 4);
+          // 5. 最后是argc
+          *esp -= 4;
+          (*(int *)(*esp)) = argc;
+          *esp -= 4;
+        }
       else
         palloc_free_page (kpage);
     }
@@ -463,3 +629,61 @@ install_page (void *upage, void *kpage, bool writable)
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
+
+void
+parse_command_args (char *cmd_line, int *argc, char **argv)
+{
+  char *token, *save_ptr;
+  *argc = 0;
+  for (token = strtok_r (cmd_line, " ", &save_ptr); token != NULL;
+      token = strtok_r (NULL, " ", &save_ptr))
+    {
+      argv[*argc] = malloc (strlen (token) + 1);
+      strlcpy (argv[*argc], token, strlen(token)+1);
+      (*argc)++;
+    }
+}
+
+
+//ADD
+struct file *
+process_get_file (int fd) 
+{
+  if (fd >= FD_START && fd <= FD_END)
+    return thread_current () -> process ->file_descriptor_table[fd];
+  else return NULL;
+}
+
+int 
+process_add_file (struct file * file) 
+{
+  if (file == NULL) 
+    return -1;
+  struct process *p = thread_current ()->process;
+  int i = 3;
+  while (i < 128) 
+    {
+      if (p->file_descriptor_table[i] == NULL) {
+        p->file_descriptor_table[i] = file;
+        return i;
+      }
+      i++;
+    }
+}
+
+void 
+process_remove_file (struct file * file) 
+{
+  struct process *p = thread_current ()->process;
+  int i = FD_START;
+  while (i <= FD_END) 
+    {
+      if (p->file_descriptor_table[i] == file) {
+        p->file_descriptor_table[i] = NULL;
+        return;
+      }
+      i++;
+    }
+}
+
+//END

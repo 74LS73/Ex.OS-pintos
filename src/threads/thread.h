@@ -4,6 +4,11 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+#include "threads/fixed-point.h"
+#ifdef USERPROG
+#include "userprog/process.h"
+#endif
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -88,14 +93,24 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int old_priority;                   /* Add old priority.  */
+    int nice;                           /* Add nice. */
+    fixed_point recent_cpu;
+    
     struct list_elem allelem;           /* List element for all threads list. */
-
+    int64_t block_time;                 /* Add Block time. */
+    
+    struct list locks;                  /* All locks the thread has. */
+    struct lock *waiting_lock;          /* waiting lock */
+    
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct list children;                    //子进程列表
+    struct process *process;
 #endif
 
     /* Owned by thread.c. */
@@ -106,7 +121,7 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
+static bool is_paging_init;
 void thread_init (void);
 void thread_start (void);
 
@@ -117,6 +132,8 @@ typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
+void blocked_thread_tick_down (struct thread *t, void *aux);
+void find_blocked_thread_and_tick_down (void);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);
@@ -132,6 +149,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+bool compare_thread_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
@@ -139,3 +157,6 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 #endif /* threads/thread.h */
+
+
+
