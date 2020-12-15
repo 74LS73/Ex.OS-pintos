@@ -313,7 +313,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
-  if (t->pagedir == NULL) 
+#ifdef VM
+  t->spt = vm_spt_create ();
+#endif
+  if (t->pagedir == NULL || t->spt == NULL) 
     goto done;
   process_activate ();
 
@@ -507,6 +510,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
+  
+#ifdef VM
+  struct thread *cur_thread = thread_current ();
+#endif
 
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
@@ -517,6 +524,20 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
+
+#ifdef VM
+      // Lazy load
+      // 只是添加SPTE而不是直接加载到内存
+      // SPTE储存需要的信息
+      vm_spte *spte = vm_spte_create (upage, file, ofs, page_read_bytes, page_zero_bytes, writable);
+      if (!vm_spt_insert (cur_thread->spt, spte)) 
+        {
+          // hash表插入失败
+          free (spte);
+          return false;
+        }
+
+#else
       /* Get a page of memory. */
       uint8_t *kpage = palloc_get_page (PAL_USER);
       if (kpage == NULL)
@@ -536,11 +557,18 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
           palloc_free_page (kpage);
           return false; 
         }
+#endif
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+
+#ifdef VM
+      // 实际上并没有写文件，所以需要更新ofs
+      ofs += PGSIZE;
+#endif
+
     }
   return true;
 }

@@ -9,6 +9,7 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#include "vm/page.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -111,6 +112,10 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
     struct list children;                    //子进程列表
     struct process *process;
+#endif
+
+#ifdef VM
+    uint32_t *spt;    
 #endif
 
     /* Owned by thread.c. */

@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -148,6 +149,19 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
   
+#ifdef VM
+  // Lazy load ，从spte加载页面
+  // 找到错误地址所在页面的起始地址
+  struct thread *cur_thread = thread_current ();
+  uint8_t *upage = pg_round_down (fault_addr);
+  vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
+  if (spte != NULL && vm_load_page_by_spte(spte)) 
+    {
+      // 没问题
+      return;
+    }
+#endif
+
   //ADD
   //针对 get_user的处理
   if(!user) // 如果是内核态,(即在处理syscall时)
