@@ -31,6 +31,11 @@
 #else
 #include "tests/threads/tests.h"
 #endif
+#ifdef VM
+#include "vm/page.h"
+#include "vm/frame.h"
+#include "vm/swap.h"
+#endif
 #ifdef FILESYS
 #include "devices/block.h"
 #include "devices/ide.h"
@@ -113,6 +118,11 @@ main (void)
 #ifdef USERPROG
   exception_init ();
   syscall_init ();
+#endif
+#ifdef VM
+  // 添加frame table和swap table初始化
+  frame_init ();
+  swap_init ();
 #endif
 
   /* Start thread scheduler and enable interrupts. */
