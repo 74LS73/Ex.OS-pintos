@@ -37,6 +37,8 @@ syscall_handler (struct intr_frame *f)
   // 根据lib/user/syscall.c 此时esp指向的值中储存了
   // 需要调用的系统调用的编号，同时，返回值储存在eax中
   int syscall_number;
+  // 内核态，记录esp，以供exception使用
+  thread_current ()->esp = f->esp;
   get_user_value(f->esp, &syscall_number, sizeof (syscall_number));
   switch (syscall_number)
     {
@@ -199,6 +201,22 @@ syscall_handler (struct intr_frame *f)
         file_close (target_file);
         break; 
       }
+    case SYS_MMAP:
+      {
+        int fd; 
+        get_user_value (f->esp + 4, &fd, sizeof (fd));
+        void *upage; 
+        get_user_value (f->esp + 8, &upage, sizeof (upage));
+        f->eax = sys_mmap (fd, upage);
+        break;
+      }
+    case SYS_MUNMAP:
+      {
+        mapid_t mapid; 
+        get_user_value (f->esp + 4, &mapid, sizeof (mapid));
+        sys_mummap (mapid);
+        break;
+      }
     default:
       {
         sys_exit (-1);
@@ -216,6 +234,82 @@ sys_exit (int status)
   printf("%s: exit(%d)\n", cur->name, status);
   thread_exit (); 
 }
+
+int
+sys_mmap (int fd, void *upage)
+{
+  lock_acquire (&filesys_lock);
+  if (fd == 0 || fd == 1) { goto SYS_MMAP_FAIL; } // fd不能为0/1
+  if (pg_ofs (upage) != 0) { goto SYS_MMAP_FAIL; } // upage必须是页面起始地址
+  void *start_upage = upage;
+  struct file *target_file = process_get_file (fd);
+  if (target_file == NULL) { goto SYS_MMAP_FAIL; } 
+  struct thread *cur_thread = thread_current ();
+  off_t ofs = 0;
+  uint32_t read_bytes = file_length (target_file);
+  if (read_bytes == 0) { goto SYS_MMAP_FAIL; } // 文件长度不能为0
+  file_seek (target_file, ofs);
+  while (read_bytes > 0) 
+    {
+      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+      // Lazy load
+      vm_spte *spte = vm_spte_create_for_file 
+        (upage, target_file, ofs, page_read_bytes, page_zero_bytes, true);
+      if (!vm_spt_insert (cur_thread->spt, spte)) 
+        { free (spte); goto SYS_MMAP_FAIL; }
+      read_bytes -= page_read_bytes;
+      upage += PGSIZE;
+      ofs += PGSIZE;
+    }
+  struct process *cur_process = cur_thread->process;
+  map_file *mfile = malloc (sizeof (map_file));
+  mfile->file = target_file;
+  mfile->start_upage = start_upage;
+  mfile->mapid = (mapid_t) (&mfile->elem);
+  hash_insert (cur_process->map_files, &mfile->elem);
+  
+  lock_release (&filesys_lock);
+  return mfile->mapid;
+SYS_MMAP_FAIL:
+  lock_release (&filesys_lock);
+  return -1;
+}
+
+void
+sys_munmap (mapid_t mapid)
+{
+  lock_acquire (&filesys_lock);
+  struct thread *cur_thread = thread_current ();
+  struct process *cur_process = cur_thread->process;
+  struct hash_elem *e = hash_find 
+            (cur_process->map_files, (struct hash_elem *) mapid);
+  if (e == NULL) goto SYS_MUNMAP_END;
+  map_file *mf = hash_entry (e, map_file, elem);
+  struct file *target_file = mf->file;
+  uint8_t *upage = mf->start_upage;
+  off_t ofs = 0;
+  uint32_t read_bytes = file_length (target_file);
+  uint32_t write_bytes = 0;
+  file_seek (target_file, ofs);
+  while (write_bytes < read_bytes) 
+  {
+    size_t page_write_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+    vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
+    if (spte == NULL) continue; // 不可能
+    if (pagedir_is_dirty (cur_thread->pagedir, upage))
+      {
+        file_write_at (target_file, upage, page_write_bytes, ofs);
+      }
+    write_bytes += page_write_bytes;
+    upage += PGSIZE;
+    ofs += page_write_bytes;
+  }
+SYS_MUNMAP_END:
+  lock_release (&filesys_lock);
+  return;
+}
+
 
 static void 
 check_uaddr (const uint8_t *uaddr) 

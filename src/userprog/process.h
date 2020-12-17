@@ -9,6 +9,18 @@
 
 typedef int pid_t;
 
+#ifdef VM
+struct map_file_entry
+  {
+    mapid_t mapid;
+    struct file *file;
+    uint8_t *start_upage;
+    struct hash_elem elem;
+  };
+
+typedef struct map_file_entry map_file;
+#endif
+
 //ADD 在为用户进程时，为struct thread添加进程信息
 struct process
 {
@@ -17,6 +29,9 @@ struct process
   char *cmd_line;
   struct list_elem child_elem;
   struct file *file_descriptor_table[128]; /* 需要储存每个线程的file */
+#ifdef VM
+  struct hash *map_files;                 /* 需要储存每个线程的mmap_file */
+#endif
   struct semaphore exit_sema;         /* 程序退出型号量，用于父子进程同步 */
   int exit_status;                    /* 程序退出状态码 */
   struct file *executing_file;        /* 本进程正在使用的文件 */
@@ -25,7 +40,6 @@ struct process
 
 #define FD_START 3                  //fd起始值
 #define FD_END   127                //fd终止值
-
 //END
 
 

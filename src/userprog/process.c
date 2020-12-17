@@ -23,6 +23,12 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+#ifdef VM
+unsigned mapfile_hash_hash_func (const struct hash_elem *, void *);
+bool mapfile_hash_less_func (const struct hash_elem *, const struct hash_elem *, void *);
+void mapfile_hash_destory_func (struct hash_elem *e, void *aux);
+#endif
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -54,6 +60,9 @@ process_execute (const char *cmd_line)
   sema_init (&p->exit_sema, 0);
   lock_init (&p->ensure_once_wait);
   sema_init (&p->init_process_sema, 0);
+#ifdef VM
+  hash_init (&p->map_files , mapfile_hash_hash_func, mapfile_hash_less_func, NULL);
+#endif
   p->executing_file = NULL;
 
   char *file_name, *save_ptr; 
@@ -713,5 +722,32 @@ process_remove_file (struct file * file)
       i++;
     }
 }
+
+#ifdef VM
+// 哈希函数，根据FTE的kpage来hash
+unsigned
+mapfile_hash_hash_func (const struct hash_elem *e, void *aux UNUSED)
+{
+  return hash_bytes (e, sizeof (struct hash_elem *));
+}
+
+// 比较函数
+bool 
+mapfile_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
+{
+  map_file *mfa = hash_entry (a, map_file, elem);
+  map_file *mfb = hash_entry (b, map_file, elem);
+  return mfa->mapid < mfb->mapid;
+}
+
+// 销毁哈希表的元素
+void 
+mapfile_hash_destory_func (struct hash_elem *e, void *aux)
+{
+  map_file *fte = hash_entry (e, map_file, elem);
+  free (fte);
+}
+
+#endif
 
 //END
