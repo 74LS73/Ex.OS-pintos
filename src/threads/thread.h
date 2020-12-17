@@ -116,6 +116,7 @@ struct thread
 
 #ifdef VM
     uint32_t *spt;    
+    void *esp;
 #endif
 
     /* Owned by thread.c. */
