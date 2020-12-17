@@ -38,7 +38,7 @@ syscall_handler (struct intr_frame *f)
   // 需要调用的系统调用的编号，同时，返回值储存在eax中
   int syscall_number;
   // 内核态，记录esp，以供exception使用
-  thread_current ()->esp = f->esp;
+  // thread_current ()->esp = f->esp;
   get_user_value(f->esp, &syscall_number, sizeof (syscall_number));
   switch (syscall_number)
     {
@@ -214,7 +214,7 @@ syscall_handler (struct intr_frame *f)
       {
         mapid_t mapid; 
         get_user_value (f->esp + 4, &mapid, sizeof (mapid));
-        sys_mummap (mapid);
+        sys_munmap (mapid);
         break;
       }
     default:

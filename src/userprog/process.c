@@ -61,7 +61,8 @@ process_execute (const char *cmd_line)
   lock_init (&p->ensure_once_wait);
   sema_init (&p->init_process_sema, 0);
 #ifdef VM
-  hash_init (&p->map_files , mapfile_hash_hash_func, mapfile_hash_less_func, NULL);
+  p->map_files = malloc (sizeof (map_file));
+  hash_init (p->map_files, mapfile_hash_hash_func, mapfile_hash_less_func, NULL);
 #endif
   p->executing_file = NULL;
 

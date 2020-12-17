@@ -6,10 +6,12 @@
 #endif
 
 #include "threads/thread.h"
+#include <hash.h>
 
 typedef int pid_t;
 
 #ifdef VM
+typedef uint32_t mapid_t;
 struct map_file_entry
   {
     mapid_t mapid;

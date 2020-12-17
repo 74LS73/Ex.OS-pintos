@@ -41,7 +41,6 @@ struct supplemental_page_table_entry
 
 typedef struct supplemental_page_table vm_spt;
 typedef struct supplemental_page_table_entry vm_spte;
-typedef uint32_t mapid_t;
 
 vm_spt *vm_spt_create ();
 void vm_spt_destory (vm_spt *);
