@@ -53,3 +53,4 @@ vm_spte *vm_spte_create_for_stack (uint8_t *);
 bool vm_load_page_by_spte (vm_spte *spte);
 
 #endif
+

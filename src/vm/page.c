@@ -31,6 +31,7 @@ vm_spt_destory (vm_spt *spt)
 bool 
 vm_spt_insert (vm_spt *spt, vm_spte *spte) 
 {
+  if (vm_spt_find (spt, spte->upage) != NULL) return false;
   struct hash_elem *old = hash_insert (&spt->page_map, &spte->elem);
   return old == NULL;
 }
@@ -171,3 +172,4 @@ void spt_hash_destory_func (struct hash_elem *e, void *aux)
 
   free (spte);
 }
+

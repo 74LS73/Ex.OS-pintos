@@ -664,8 +664,14 @@ install_page (void *upage, void *kpage, bool writable)
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
+  bool success = (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+#ifdef VM
+  vm_spte *spte = vm_spte_create_for_stack (((uint8_t *) PHYS_BASE) - PGSIZE);
+  struct thread *cur_thread = thread_current ();
+  success = vm_spt_insert (cur_thread->spt, spte);
+#endif
+  return success;
 }
 
 void
