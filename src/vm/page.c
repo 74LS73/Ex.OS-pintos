@@ -8,6 +8,7 @@ unsigned spt_hash_hash_func (const struct hash_elem *e, void *aux);
 bool spt_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux);
 void spt_hash_destory_func (struct hash_elem *e, void *aux);
 
+static bool install_page (void *upage, void *kpage, bool writable);
 // 创建SPT
 vm_spt * 
 vm_spt_create () 

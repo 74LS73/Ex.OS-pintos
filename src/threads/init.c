@@ -122,7 +122,7 @@ main (void)
 #ifdef VM
   // 添加frame table和swap table初始化
   frame_init ();
-  swap_init ();
+  // swap_init ();
 #endif
 
   /* Start thread scheduler and enable interrupts. */

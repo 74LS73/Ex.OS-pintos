@@ -17,7 +17,13 @@ struct supplemental_page_table
     struct hash page_map;
   };
 
+enum supplemental_page_table_entry_type
+  {
+    _SPTE_FOR_FILE,
+    _SPTE_FOR_STACK,
+  };
 
+typedef enum supplemental_page_table_entry_type vm_spte_type;
 // SPTE：补充页表项
 struct supplemental_page_table_entry
   {
@@ -32,15 +38,9 @@ struct supplemental_page_table_entry
 
   };
 
-enum supplemental_page_table_entry_type
-  {
-    _SPTE_FOR_FILE,
-    _SPTE_FOR_STACK,
-  };
 
 typedef struct supplemental_page_table vm_spt;
 typedef struct supplemental_page_table_entry vm_spte;
-typedef enum supplemental_page_table_entry_type vm_spte_type;
 typedef uint32_t mapid_t;
 
 vm_spt *vm_spt_create ();

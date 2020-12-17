@@ -38,7 +38,7 @@ frame_init ()
 {
   hash_init (&frame_map, frame_hash_hash_func, frame_hash_less_func, NULL);
   list_init (&frame_clock);
-  clock_ptr = &frame_clock.head;
+  clock_ptr = &frame_clock.tail;
 }
 
 void *
