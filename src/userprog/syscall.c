@@ -243,6 +243,8 @@ sys_mmap (int fd, void *upage)
   if (pg_ofs (upage) != 0) { goto SYS_MMAP_FAIL; } // upage必须是页面起始地址
   void *start_upage = upage;
   struct file *target_file = process_get_file (fd);
+  // 防止文件关闭后失效
+  target_file = file_reopen (target_file);
   if (target_file == NULL) { goto SYS_MMAP_FAIL; } 
   struct thread *cur_thread = thread_current ();
   off_t ofs = 0;
@@ -293,18 +295,19 @@ sys_munmap (mapid_t mapid)
   uint32_t write_bytes = 0;
   file_seek (target_file, ofs);
   while (write_bytes < read_bytes) 
-  {
-    size_t page_write_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-    vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
-    if (spte == NULL) continue; // 不可能
-    if (pagedir_is_dirty (cur_thread->pagedir, upage))
-      {
-        file_write_at (target_file, upage, page_write_bytes, ofs);
-      }
-    write_bytes += page_write_bytes;
-    upage += PGSIZE;
-    ofs += page_write_bytes;
-  }
+    {
+      size_t page_write_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
+      if (spte == NULL) continue; // 不可能
+      if (pagedir_is_dirty (cur_thread->pagedir, upage))
+        {
+          file_write_at (target_file, upage, page_write_bytes, ofs);
+        }
+      write_bytes += page_write_bytes;
+      upage += PGSIZE;
+      ofs += page_write_bytes;
+    }
+  file_close (target_file);
 SYS_MUNMAP_END:
   lock_release (&filesys_lock);
   return;
