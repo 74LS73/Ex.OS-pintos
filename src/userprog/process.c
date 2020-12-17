@@ -203,7 +203,12 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  
+
+#ifdef VM
+  // 释放SPT
+  vm_spt_destory (cur->spt);
+#endif
+
   // ADD
   // 有可能是加载文件失败的程序
   if (p->executing_file != NULL)
@@ -529,7 +534,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       // Lazy load
       // 只是添加SPTE而不是直接加载到内存
       // SPTE储存需要的信息
-      vm_spte *spte = vm_spte_create (upage, file, ofs, page_read_bytes, page_zero_bytes, writable);
+      vm_spte *spte = vm_spte_create_for_file (upage, file, ofs, page_read_bytes, page_zero_bytes, writable);
       if (!vm_spt_insert (cur_thread->spt, spte)) 
         {
           // hash表插入失败
@@ -580,8 +585,11 @@ setup_stack (void **esp, int argc, char **argv)
 {
   uint8_t *kpage;
   bool success = false;
-
+#ifdef VM
+  kpage = falloc_get_frame (PAL_USER | PAL_ZERO);
+#else
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+#endif
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
@@ -621,7 +629,11 @@ setup_stack (void **esp, int argc, char **argv)
           *esp -= 4;
         }
       else
+#ifdef VM
+        falloc_free_frame (kpage);
+#else
         palloc_free_page (kpage);
+#endif
     }
   return success;
 }

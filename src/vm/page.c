@@ -46,9 +46,10 @@ vm_spt_find (vm_spt *spt, uint8_t *upage)
 }
 
 vm_spte *
-vm_spte_create (uint8_t *upage, struct file *file, off_t file_ofs, uint32_t page_read_bytes, uint32_t page_zero_bytes, bool writable)
+vm_spte_create_for_file (uint8_t *upage, struct file *file, off_t file_ofs, uint32_t page_read_bytes, uint32_t page_zero_bytes, bool writable)
 {
   vm_spte* spte = malloc (sizeof (vm_spte));
+  spte->type = _SPTE_FOR_FILE;
   spte->upage = upage;
   spte->file = file;
   spte->file_ofs = file_ofs;
@@ -58,42 +59,91 @@ vm_spte_create (uint8_t *upage, struct file *file, off_t file_ofs, uint32_t page
   return spte;
 }
 
+vm_spte *
+vm_spte_create_for_stack (uint8_t *upage)
+{
+  vm_spte* spte = malloc (sizeof (vm_spte));
+  spte->type = _SPTE_FOR_STACK;
+  spte->upage = upage;
+  spte->writable = true;
+  return spte;
+}
+
 bool
 vm_load_page_by_spte (vm_spte *spte) 
 {
-  int8_t *upage = spte->upage;
-  struct file *file = spte->file;
-  off_t ofs = spte->file_ofs;
-  uint32_t page_read_bytes = spte->page_read_bytes;
-  uint32_t page_zero_bytes = spte->page_zero_bytes;
-  bool writable = spte->writable;
-
-  uint8_t *kpage = palloc_get_page (PAL_USER);
-  if (kpage == NULL)
-    return false;
-
-  /* Load this page. */
-  file_seek (file, ofs);
-  if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+  switch (spte->type)
     {
-      palloc_free_page (kpage);
-      return false; 
-    }
-  memset (kpage + page_read_bytes, 0, page_zero_bytes);
+    case _SPTE_FOR_FILE:
+      {
+        uint8_t *upage = spte->upage;
+        struct file *file = spte->file;
+        off_t ofs = spte->file_ofs;
+        uint32_t page_read_bytes = spte->page_read_bytes;
+        uint32_t page_zero_bytes = spte->page_zero_bytes;
+        bool writable = spte->writable;
 
-  /* Add the page to the process's address space. */
-  struct thread *t = thread_current ();
-  bool flag = pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable);
-  if (!flag) 
-    {
-      palloc_free_page (kpage);
-      return false; 
+        uint8_t *kpage = falloc_get_frame (PAL_USER);
+        if (kpage == NULL)
+          return false;
+
+        /* Load this page. */
+        file_seek (file, ofs);
+        if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+          {
+            falloc_free_frame (kpage);
+            return false; 
+          }
+        memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+        if (!install_page (upage, kpage, writable)) 
+          {
+            falloc_free_frame (kpage);
+            return false; 
+          }
+        return true;
+      }
+    case _SPTE_FOR_STACK:
+      {
+        // TODO: 判断栈空间上限
+        uint8_t *upage = spte->upage;
+        bool writable = spte->writable;
+        uint8_t *kpage = falloc_get_frame (PAL_USER | PAL_ZERO);
+        if (!install_page (upage, kpage, writable)) 
+          {
+            falloc_free_frame (kpage);
+            return false; 
+          }
+        return true;
+      }
+    default:
+      {}
     }
-  return true;
+
+  NOT_REACHED ();
+  return false;
 }
 
+// 这个似乎主要在这边用到了
+/* Adds a mapping from user virtual address UPAGE to kernel
+   virtual address KPAGE to the page table.
+   If WRITABLE is true, the user process may modify the page;
+   otherwise, it is read-only.
+   UPAGE must not already be mapped.
+   KPAGE should probably be a page obtained from the user pool
+   with palloc_get_page().
+   Returns true on success, false if UPAGE is already mapped or
+   if memory allocation fails. */
+static bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
 
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
 
 // 哈希函数，根据SPTE的upage来hash
 unsigned

@@ -153,8 +153,19 @@ page_fault (struct intr_frame *f)
   // Lazy load ，从spte加载页面
   // 找到错误地址所在页面的起始地址
   struct thread *cur_thread = thread_current ();
+  // 如果是用户态，在f->esp中获取esp，否则从cur_thread
+  void *esp = user ? f->esp : cur_thread->esp;
   uint8_t *upage = pg_round_down (fault_addr);
-  vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
+  vm_spte *spte;
+  // 如果因为堆栈增长
+  if ((uint32_t) esp - (uint32_t) fault_addr <= 32 
+      && (uint32_t) esp - (uint32_t) fault_addr >= 4) 
+    {
+      spte = vm_spte_create_for_stack (upage);
+    }
+  // 否则 
+  else
+    spte = vm_spt_find (cur_thread->spt, upage);
   if (spte != NULL && vm_load_page_by_spte(spte)) 
     {
       // 没问题
