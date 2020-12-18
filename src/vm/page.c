@@ -71,6 +71,18 @@ vm_spte_create_for_stack (uint8_t *upage)
   return spte;
 }
 
+// 状态改为放到交换区
+bool
+vm_spte_set_for_swap (vm_spt *spt, uint8_t *upage, block_sector_t start_sector)
+{
+  vm_spte* spte = vm_spt_find (spt, upage);
+  if (spte == NULL) return false;
+  spte->type = _SPTE_FOR_SWAP;
+  spte->upage = upage;
+  spte->start_sector = start_sector;
+  return true;
+}
+
 bool
 vm_load_page_by_spte (vm_spte *spte) 
 {
@@ -116,6 +128,10 @@ vm_load_page_by_spte (vm_spte *spte)
             return false; 
           }
         return true;
+      }
+    case _SPTE_FOR_SWAP:
+      {
+
       }
     default:
       {}

@@ -20,7 +20,7 @@ struct frame_table_entry
     uint8_t *kpage;   // 逻辑地址
     uint8_t *upage;   // 虚拟地址
     struct thread *t;
-    block_sector_t start_sector;  // 如果被放入交换区，记录起始sector
+    // block_sector_t start_sector;  // 如果被放入交换区，记录起始sector
     struct hash_elem helem;  // hash元素，参考hash.h
     struct list_elem lelem;  // 循环列表，for 时钟页面置换算法
   };
@@ -104,13 +104,13 @@ feviction_get_fte (uint32_t *pagedir)
         }
       else 
         {
-          fte->start_sector = fswap_put_frame (fte->kpage);
+          block_sector_t start_sector = fswap_put_frame (fte->kpage);
           // palloc_free_page(fte->kpage);
           // 从页目录中删除
           pagedir_clear_page (fte->t->pagedir, fte->upage);
           // printf("arrive here!\n");
           falloc_free_frame (fte->kpage);
-          
+          vm_spte *spte = vm_spte_set_for_swap (fte->t->spt, fte->upage, start_sector);
           // TODO
           return fte->kpage;
         }

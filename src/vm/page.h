@@ -4,6 +4,7 @@
 #include <hash.h>
 
 #include "filesys/file.h"
+#include "devices/block.h"
 
 #ifndef VM
 #define VM
@@ -21,6 +22,7 @@ enum supplemental_page_table_entry_type
   {
     _SPTE_FOR_FILE,
     _SPTE_FOR_STACK,
+    _SPTE_FOR_SWAP,
   };
 
 typedef enum supplemental_page_table_entry_type vm_spte_type;
@@ -33,6 +35,7 @@ struct supplemental_page_table_entry
     off_t file_ofs;
     uint32_t page_read_bytes; 
     uint32_t page_zero_bytes; 
+    block_sector_t start_sector;  // 如果被放入交换区，记录起始sector
     bool writable;
     struct hash_elem elem;  // hash元素，参考hash.h
 
@@ -49,6 +52,8 @@ vm_spte *vm_spt_find (vm_spt *, uint8_t *);
 
 vm_spte *vm_spte_create_for_file (uint8_t *, struct file *, off_t, uint32_t, uint32_t, bool);
 vm_spte *vm_spte_create_for_stack (uint8_t *);
+
+vm_spte *vm_spte_set_for_swap (vm_spt *, uint8_t *upage, block_sector_t);
 
 bool vm_load_page_by_spte (vm_spte *spte);
 
