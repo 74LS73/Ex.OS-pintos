@@ -1,5 +1,6 @@
 #include "swap.h"
 
+#include <bitmap.h>
 #include "threads/vaddr.h"
 
 // 一个页面需要的sector数量
@@ -12,6 +13,7 @@ void
 swap_init () 
 {
   swap_block = block_get_role (BLOCK_SWAP);
+  ASSERT (swap_block != NULL);
   // 如何在c中设置private属性：block->size
   sector_map = bitmap_create (block_size (swap_block));
   bitmap_set_all (sector_map, true);
