@@ -107,7 +107,6 @@ vm_load_page_by_spte (vm_spte *spte)
       }
     case _SPTE_FOR_STACK:
       {
-        // TODO: 判断栈空间上限
         uint8_t *upage = spte->upage;
         bool writable = spte->writable;
         uint8_t *kpage = falloc_get_frame (PAL_USER | PAL_ZERO);

@@ -113,10 +113,10 @@ struct thread
     struct list children;                    //子进程列表
     struct process *process;
 #endif
-
-#ifdef VM
-    uint32_t *spt;    
+    
     void *esp;
+#ifdef VM
+    uint32_t *spt;
 #endif
 
     /* Owned by thread.c. */
