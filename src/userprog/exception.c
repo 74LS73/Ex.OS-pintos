@@ -170,6 +170,7 @@ page_fault (struct intr_frame *f)
   if (is_stack_grow) 
     {
       spte = vm_spte_create_for_stack (upage);
+      if (vm_spt_insert (cur_thread->spt, spte) == false) goto ERROR;
     }
   // 否则 
   else
@@ -181,6 +182,7 @@ page_fault (struct intr_frame *f)
     }
 #endif
 
+ERROR:
   //ADD
   //针对 get_user的处理
   if(!user) // 如果是内核态,(即在处理syscall时)
