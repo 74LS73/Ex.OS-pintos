@@ -602,7 +602,7 @@ setup_stack (void **esp, int argc, char **argv)
   uint8_t *kpage;
   bool success = false;
 #ifdef VM
-  kpage = falloc_get_frame (PAL_USER | PAL_ZERO);
+  kpage = falloc_get_frame (PAL_USER | PAL_ZERO, ((uint8_t *) PHYS_BASE) - PGSIZE);
 #else
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
 #endif
@@ -804,4 +804,5 @@ mapfile_hash_destory_func (struct hash_elem *e, void *aux UNUSED)
 #endif
 
 //END
+
 

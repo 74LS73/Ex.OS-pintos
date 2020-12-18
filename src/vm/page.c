@@ -85,7 +85,7 @@ vm_load_page_by_spte (vm_spte *spte)
         uint32_t page_zero_bytes = spte->page_zero_bytes;
         bool writable = spte->writable;
 
-        uint8_t *kpage = falloc_get_frame (PAL_USER);
+        uint8_t *kpage = falloc_get_frame (PAL_USER, upage);
         if (kpage == NULL)
           return false;
 
@@ -109,7 +109,7 @@ vm_load_page_by_spte (vm_spte *spte)
       {
         uint8_t *upage = spte->upage;
         bool writable = spte->writable;
-        uint8_t *kpage = falloc_get_frame (PAL_USER | PAL_ZERO);
+        uint8_t *kpage = falloc_get_frame (PAL_USER | PAL_ZERO, upage);
         if (!install_page (upage, kpage, writable)) 
           {
             falloc_free_frame (kpage);
@@ -171,4 +171,5 @@ void spt_hash_destory_func (struct hash_elem *e, void *aux)
 
   free (spte);
 }
+
 

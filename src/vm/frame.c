@@ -31,7 +31,7 @@ unsigned frame_hash_hash_func (const struct hash_elem *e, void *aux);
 bool frame_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux);
 void frame_hash_destory_func (struct hash_elem *e, void *aux);
 
-
+void *feviction_get_fte (uint32_t *pagedir);
 
 void 
 frame_init () 
@@ -42,16 +42,21 @@ frame_init ()
 }
 
 void *
-falloc_get_frame (enum palloc_flags flags)
+falloc_get_frame (enum palloc_flags flags, void *upage)
 {
+  struct thread *cur_thread = thread_current ();
   uint8_t *kpage = palloc_get_page (flags | PAL_USER);
   if (kpage == NULL)
     {
       // eviction
+      feviction_get_fte (cur_thread->pagedir);
+      kpage = palloc_get_page (flags | PAL_USER);
     }
 
   vm_fte *fte = malloc(sizeof (vm_fte));
   fte->kpage = kpage;
+  fte->upage = upage;
+  fte->t = thread_current ();
   struct hash_elem *old = hash_insert (&frame_map, &fte->helem);
   list_insert (clock_ptr, &fte->lelem);
   if (old != NULL)
@@ -65,14 +70,20 @@ falloc_get_frame (enum palloc_flags flags)
 void 
 falloc_free_frame (void *kpage)
 {
-  vm_fte *fte = malloc(sizeof (vm_fte));
-  fte->kpage = kpage;
-  struct hash_elem *found = hash_delete (&frame_map, &fte->helem);
-  if (found != NULL)
+  vm_fte *tmp = malloc(sizeof (vm_fte));
+  tmp->kpage = kpage;
+  struct hash_elem *he = hash_delete (&frame_map, &tmp->helem);
+  if (he == NULL)
     {
       // TODO 出错
+      // printf("arrive here!\n");
     }
+  vm_fte *fte = hash_entry (he, vm_fte, helem);
+  list_remove (&fte->lelem);
+  static int i = 1;
+  
   palloc_free_page (kpage);
+  printf("===%d\n", i++);
   return;
 }
 
@@ -81,6 +92,8 @@ feviction_get_fte (uint32_t *pagedir)
 {
   while (true)
     {
+      if (clock_ptr == list_tail (&frame_clock))
+        clock_ptr = list_begin (&frame_clock);
       vm_fte *fte = list_entry (clock_ptr, vm_fte, lelem);
       void *upage = fte->upage;
       // uint32_t *pagedir = fte->t->pagedir;
@@ -95,12 +108,13 @@ feviction_get_fte (uint32_t *pagedir)
           // palloc_free_page(fte->kpage);
           // 从页目录中删除
           pagedir_clear_page (fte->t->pagedir, fte->upage);
+          // printf("arrive here!\n");
+          falloc_free_frame (fte->kpage);
+          
           // TODO
           return fte->kpage;
         }
       clock_ptr = list_next (clock_ptr);
-      if (clock_ptr == list_tail (&frame_clock))
-        clock_ptr = list_begin (&frame_clock);
     }
   
   NOT_REACHED ();
@@ -133,3 +147,4 @@ frame_hash_destory_func (struct hash_elem *e, void *aux)
   // TODO
   free (fte);
 }
+
