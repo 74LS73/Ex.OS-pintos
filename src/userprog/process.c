@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <hash.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -194,6 +195,11 @@ process_exit (void)
       }
       i++;
     }
+  // AND
+#ifdef VM
+  // UNMAP所有文件
+  hash_destroy (p->map_files, mapfile_hash_destory_func);
+#endif
   //END
   
   
@@ -731,6 +737,44 @@ process_remove_file (struct file * file)
 }
 
 #ifdef VM
+
+
+void 
+process_munmap_file (map_file *mf)
+{
+  if (mf == NULL) return;
+  struct thread *cur_thread = thread_current ();
+  struct process *cur_process = cur_thread->process;
+  struct file *target_file = mf->file;
+  uint8_t *upage = mf->start_upage;
+  off_t ofs = 0;
+  uint32_t read_bytes = file_length (target_file);
+  uint32_t write_bytes = 0;
+  file_seek (target_file, ofs);
+  while (write_bytes < read_bytes) 
+    {
+      size_t page_write_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
+      if (spte == NULL) continue; // 不可能
+      if (pagedir_is_dirty (cur_thread->pagedir, upage))
+        {
+          file_write_at (target_file, upage, page_write_bytes, ofs);
+        }
+      write_bytes += page_write_bytes;
+      upage += PGSIZE;
+      ofs += page_write_bytes;
+    }
+  file_close (target_file);
+  // 清除map_file_entry,
+  // 不检查返回值,因为如果调用hash_destory就已经删除
+  map_file *tmp = malloc (sizeof (map_file));
+  tmp->mapid = mf->mapid;
+  hash_delete (cur_process->map_files, &tmp->elem);
+  free (mf);
+  free (tmp);
+  return;
+}
+
 // 哈希函数，根据FTE的kpage来hash
 unsigned
 mapfile_hash_hash_func (const struct hash_elem *e, void *aux UNUSED)
@@ -747,14 +791,17 @@ mapfile_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, vo
   return mfa->mapid < mfb->mapid;
 }
 
-// 销毁哈希表的元素
+// 销毁哈希表的元素（UNMAP所有文件）
 void 
-mapfile_hash_destory_func (struct hash_elem *e, void *aux)
+mapfile_hash_destory_func (struct hash_elem *e, void *aux UNUSED)
 {
-  map_file *fte = hash_entry (e, map_file, elem);
-  free (fte);
+  // 此时elem对应的map_file已经从表里删除了
+  map_file *mf = hash_entry (e, map_file, elem);
+  process_munmap_file (mf);
+  return;
 }
 
 #endif
 
 //END
+

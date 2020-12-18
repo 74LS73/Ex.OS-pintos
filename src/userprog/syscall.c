@@ -19,7 +19,7 @@ static void access_invalid_uaddr (void);
 static void check_uaddr (const uint8_t *uaddr); 
 static void check_uaddr_size (const uint8_t *uaddr, size_t size);
 
-struct lock filesys_lock;
+static struct lock filesys_lock;
 //END
 
 void
@@ -281,40 +281,18 @@ SYS_MMAP_FAIL:
 void
 sys_munmap (mapid_t mapid)
 {
-  lock_acquire (&filesys_lock);
   struct thread *cur_thread = thread_current ();
   struct process *cur_process = cur_thread->process;
-  
   map_file *tmp = malloc (sizeof (map_file));
   tmp->mapid = mapid;
   struct hash_elem *e = hash_find 
             (cur_process->map_files, &tmp->elem);
+  if (e == NULL) return;
   free (tmp);
-  if (e == NULL) goto SYS_MUNMAP_END;
   map_file *mf = hash_entry (e, map_file, elem);
-  struct file *target_file = mf->file;
-  uint8_t *upage = mf->start_upage;
-  off_t ofs = 0;
-  uint32_t read_bytes = file_length (target_file);
-  uint32_t write_bytes = 0;
-  
-  file_seek (target_file, ofs);
-  while (write_bytes < read_bytes) 
-    {
-      size_t page_write_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-      vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
-      if (spte == NULL) continue; // 不可能
-      if (pagedir_is_dirty (cur_thread->pagedir, upage))
-        {
-          file_write_at (target_file, upage, page_write_bytes, ofs);
-        }
-      // vm_spte_destory (spte);
-      write_bytes += page_write_bytes;
-      upage += PGSIZE;
-      ofs += page_write_bytes;
-    }
-  file_close (target_file);
-SYS_MUNMAP_END:
+  if (mf == NULL) return;
+  lock_acquire (&filesys_lock);
+  process_munmap_file (mf);
   lock_release (&filesys_lock);
   return;
 }

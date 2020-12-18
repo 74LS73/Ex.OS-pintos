@@ -54,6 +54,9 @@ void process_activate (void);
 struct file *process_get_file (int);
 int process_add_file (struct file * file);
 void process_remove_file (struct file * file);
+#ifdef VM
+void process_munmap_file (map_file *);
+#endif
 //END
 
 #endif /* userprog/process.h */
