@@ -83,7 +83,7 @@ falloc_free_frame (void *kpage)
   static int i = 1;
   
   palloc_free_page (kpage);
-  printf("===%d\n", i++);
+  // printf("===%d\n", i++);
   return;
 }
 
@@ -110,7 +110,7 @@ feviction_get_fte (uint32_t *pagedir)
           pagedir_clear_page (fte->t->pagedir, fte->upage);
           // printf("arrive here!\n");
           falloc_free_frame (fte->kpage);
-          vm_spte *spte = vm_spte_set_for_swap (fte->t->spt, fte->upage, start_sector);
+          vm_spte_set_for_swap (fte->t->spt, fte->upage, start_sector);
           // TODO
           return fte->kpage;
         }

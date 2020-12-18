@@ -53,7 +53,7 @@ vm_spte *vm_spt_find (vm_spt *, uint8_t *);
 vm_spte *vm_spte_create_for_file (uint8_t *, struct file *, off_t, uint32_t, uint32_t, bool);
 vm_spte *vm_spte_create_for_stack (uint8_t *);
 
-vm_spte *vm_spte_set_for_swap (vm_spt *, uint8_t *upage, block_sector_t);
+bool vm_spte_set_for_swap (vm_spt *, uint8_t *upage, block_sector_t);
 
 bool vm_load_page_by_spte (vm_spte *spte);
 
