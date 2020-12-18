@@ -158,8 +158,16 @@ page_fault (struct intr_frame *f)
   uint8_t *upage = pg_round_down (fault_addr);
   vm_spte *spte;
   // 如果因为堆栈增长
-  if ((uint32_t) esp - (uint32_t) fault_addr <= 32 
-      && (uint32_t) esp - (uint32_t) fault_addr >= 4) 
+  bool is_stack_grow = esp - fault_addr <= 32;
+  is_stack_grow &= esp - fault_addr >= 4;
+  // 有可能esp以上的栈空间也没分配
+  is_stack_grow |= fault_addr >= esp;
+  is_stack_grow &= fault_addr < PHYS_BASE;
+#define MAX_STACK_SIZE (1 << 23)
+  // stack不能无限大
+  // child-bad更改esp
+  is_stack_grow &= fault_addr > PHYS_BASE - MAX_STACK_SIZE;
+  if (is_stack_grow) 
     {
       spte = vm_spte_create_for_stack (upage);
     }
