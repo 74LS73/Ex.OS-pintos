@@ -55,3 +55,11 @@ fswap_get_frame(void *kpage, block_sector_t start_sector)
   bitmap_set_multiple (sector_map, start_sector, SWAP_PAGE_SIZE, true);
   return;
 }
+
+// 释放swap空间
+void 
+fswap_free_frame( block_sector_t start_sector) 
+{
+  bitmap_set_multiple (sector_map, start_sector, SWAP_PAGE_SIZE, true);
+  return;
+}

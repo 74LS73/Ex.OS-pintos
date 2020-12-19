@@ -3,6 +3,7 @@
 #include <debug.h>
 #include "threads/palloc.h"
 #include "userprog/process.h"
+#include "swap.h"
 
 unsigned spt_hash_hash_func (const struct hash_elem *e, void *aux);
 bool spt_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux);
@@ -195,7 +196,14 @@ void spt_hash_destory_func (struct hash_elem *e, void *aux)
 {
   vm_spte *spte = hash_entry(e, vm_spte, elem);
   // TODO
-
+  switch (spte->type)
+  {
+  case _SPTE_FOR_SWAP:
+    fswap_free_frame(spte->start_sector);
+    break;
+  default:
+    break;
+  }
   free (spte);
 }
 
