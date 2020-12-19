@@ -63,3 +63,4 @@ fswap_free_frame( block_sector_t start_sector)
   bitmap_set_multiple (sector_map, start_sector, SWAP_PAGE_SIZE, true);
   return;
 }
+
