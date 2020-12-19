@@ -131,7 +131,18 @@ vm_load_page_by_spte (vm_spte *spte)
       }
     case _SPTE_FOR_SWAP:
       {
-
+        uint8_t *upage = spte->upage;
+        bool writable = spte->writable;
+        uint8_t *kpage = falloc_get_frame (PAL_USER, upage);
+        fswap_get_frame (kpage, spte->start_sector);
+        
+        if (!install_page (upage, kpage, writable)) 
+          {
+            falloc_free_frame (kpage);
+            return false; 
+          }
+        // spte->type = _SPTE_FOR_STACK;
+        return true;
       }
     default:
       {}

@@ -38,7 +38,7 @@ frame_init ()
 {
   hash_init (&frame_map, frame_hash_hash_func, frame_hash_less_func, NULL);
   list_init (&frame_clock);
-  clock_ptr = &frame_clock.tail;
+  clock_ptr = list_end (&frame_clock);
 }
 
 void *
@@ -80,11 +80,18 @@ falloc_free_frame (void *kpage)
     }
   vm_fte *fte = hash_entry (he, vm_fte, helem);
   list_remove (&fte->lelem);
-  static int i = 1;
-  
   palloc_free_page (kpage);
-  // printf("===%d\n", i++);
   return;
+}
+
+void 
+clock_point_to_next ()
+{
+  if (clock_ptr == list_end (&frame_clock))
+    clock_ptr = list_begin (&frame_clock);
+  clock_ptr = list_next (clock_ptr);
+  if (clock_ptr == list_end (&frame_clock))
+    clock_ptr = list_begin (&frame_clock);
 }
 
 void *
@@ -92,8 +99,7 @@ feviction_get_fte (uint32_t *pagedir)
 {
   while (true)
     {
-      if (clock_ptr == list_tail (&frame_clock))
-        clock_ptr = list_begin (&frame_clock);
+      clock_point_to_next ();
       vm_fte *fte = list_entry (clock_ptr, vm_fte, lelem);
       void *upage = fte->upage;
       // uint32_t *pagedir = fte->t->pagedir;
@@ -109,12 +115,12 @@ feviction_get_fte (uint32_t *pagedir)
           // 从页目录中删除
           pagedir_clear_page (fte->t->pagedir, fte->upage);
           // printf("arrive here!\n");
+          clock_point_to_next ();
           falloc_free_frame (fte->kpage);
           vm_spte_set_for_swap (fte->t->spt, fte->upage, start_sector);
           // TODO
           return fte->kpage;
         }
-      clock_ptr = list_next (clock_ptr);
     }
   
   NOT_REACHED ();
