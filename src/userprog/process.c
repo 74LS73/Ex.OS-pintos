@@ -675,7 +675,7 @@ install_page (void *upage, void *kpage, bool writable)
 #ifdef VM
   vm_spte *spte = vm_spte_create_for_stack (((uint8_t *) PHYS_BASE) - PGSIZE);
   struct thread *cur_thread = thread_current ();
-  success = vm_spt_insert (cur_thread->spt, spte);
+  success &= vm_spt_insert (cur_thread->spt, spte);
 #endif
   return success;
 }
