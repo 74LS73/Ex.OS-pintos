@@ -167,14 +167,17 @@ page_fault (struct intr_frame *f)
   // stack不能无限大
   // child-bad更改esp
   is_stack_grow &= fault_addr > PHYS_BASE - MAX_STACK_SIZE;
-  if (is_stack_grow) 
+  if (is_stack_grow && vm_spt_find (cur_thread->spt, upage) == NULL) 
     {
       spte = vm_spte_create_for_stack (upage);
-      if (vm_spt_insert (cur_thread->spt, spte) == false) goto ERROR;
+      if (vm_spt_insert (cur_thread->spt, spte) == false) 
+        { 
+          goto ERROR;
+        }
     }
   // 否则 
-  else
-    spte = vm_spt_find (cur_thread->spt, upage);
+  // else
+  spte = vm_spt_find (cur_thread->spt, upage);
   if (spte != NULL && vm_load_page_by_spte(spte)) 
     {
       // 没问题
