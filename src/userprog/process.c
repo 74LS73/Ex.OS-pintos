@@ -600,15 +600,23 @@ static bool
 setup_stack (void **esp, int argc, char **argv) 
 {
   uint8_t *kpage;
+  uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
   bool success = false;
 #ifdef VM
-  kpage = falloc_get_frame (PAL_USER | PAL_ZERO, ((uint8_t *) PHYS_BASE) - PGSIZE);
+  // 创建spte并加载到SPT中
+  vm_spte *spte = vm_spte_create_for_stack (upage);
+  if (!vm_spt_insert (thread_current ()->spt, spte)) return false;
+  kpage = vm_load_page_by_spte(spte);
 #else
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
 #endif
   if (kpage != NULL) 
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+#ifdef VM
+      success = true;
+#else
+      success = install_page (upage, kpage, true);
+#endif 
       if (success)
         {
           *esp = PHYS_BASE;
@@ -645,11 +653,7 @@ setup_stack (void **esp, int argc, char **argv)
           *esp -= 4;
         }
       else
-#ifdef VM
-        falloc_free_frame (kpage);
-#else
         palloc_free_page (kpage);
-#endif
     }
   return success;
 }
@@ -670,14 +674,8 @@ install_page (void *upage, void *kpage, bool writable)
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  bool success = (pagedir_get_page (t->pagedir, upage) == NULL
+  return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
-#ifdef VM
-  vm_spte *spte = vm_spte_create_for_stack (((uint8_t *) PHYS_BASE) - PGSIZE);
-  struct thread *cur_thread = thread_current ();
-  success &= vm_spt_insert (cur_thread->spt, spte);
-#endif
-  return success;
 }
 
 void
