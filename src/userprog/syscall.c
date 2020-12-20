@@ -19,6 +19,9 @@ static void access_invalid_uaddr (void);
 static void check_uaddr (const uint8_t *uaddr); 
 static void check_uaddr_size (const uint8_t *uaddr, size_t size);
 
+bool sys_pin_buffer (const void *buffer, size_t size);
+bool sys_unpin_buffer (const void *buffer, size_t size);
+
 static struct lock filesys_lock;
 //END
 
@@ -122,29 +125,9 @@ syscall_handler (struct intr_frame *f)
         get_user_value (f->esp + 8, &buffer, sizeof(buffer));
         get_user_value (f->esp + 12, &size, sizeof(size));
         check_uaddr_size (buffer, size);
-        if (fd == 0) 
-         {
-           int i;
-           for (i = 0; i < size; ++i)
-             {
-               if (!put_user (buffer + i, input_getc ()))
-                 {
-                   lock_release (&filesys_lock);
-                   sys_exit (-1);
-                 }
-             }
-           f->eax = size;
-           break;
-         }
-        else
-          {
-            struct file *target_file = process_get_file (fd);
-            if (target_file)
-              f->eax = file_read (target_file, buffer, size); 
-            else
-              f->eax = -1;
-          }
-
+        sys_pin_buffer (buffer, size);
+        f->eax = sys_read (fd, buffer, size);
+        sys_unpin_buffer (buffer, size);
         lock_release (&filesys_lock);
         break; 
       }
@@ -158,19 +141,9 @@ syscall_handler (struct intr_frame *f)
         get_user_value (f->esp + 8, &buffer, sizeof(buffer));
         get_user_value (f->esp + 12, &size, sizeof(size));
         check_uaddr_size (buffer, size);
-        if (fd == 1) 
-          {
-            putbuf (buffer, size);
-            f->eax = size;
-          } 
-        else
-          {
-            struct file *target_file = process_get_file (fd);
-            if (target_file)
-              f->eax = file_write (target_file, buffer, size);
-            else
-              f->eax = -1;
-          }
+        sys_pin_buffer (buffer, size);
+        f->eax = sys_write (fd, buffer, size);
+        // sys_unpin_buffer (buffer, size);
         lock_release (&filesys_lock);
         break;
        }
@@ -236,10 +209,57 @@ sys_exit (int status)
 }
 
 int
+sys_read (int fd, const void *buffer, unsigned size)
+{
+  if (fd == 0) 
+    {
+      int i;
+      for (i = 0; i < size; ++i)
+        {
+          if (!put_user (buffer + i, input_getc ()))
+            {
+              lock_release (&filesys_lock);
+              sys_exit (-1);
+            }
+        }
+      return size;
+    }
+  else
+    {
+      struct file *target_file = process_get_file (fd);
+      if (target_file)
+        return file_read (target_file, buffer, size); 
+      else
+        return -1;
+    }
+  return -1; 
+}
+
+int
+sys_write (int fd, const void *buffer, unsigned size)
+{
+  if (fd == 1) 
+    {
+      putbuf (buffer, size);
+      return size;
+    } 
+  else
+    {
+      struct file *target_file = process_get_file (fd);
+      if (target_file)
+        return file_write (target_file, buffer, size);
+      else
+        return -1;
+    }
+  return -1;
+}
+
+int
 sys_mmap (int fd, void *upage)
 {
   lock_acquire (&filesys_lock);
   if (fd == 0 || fd == 1) { goto SYS_MMAP_FAIL; } // fd不能为0/1
+  if (upage < 0x8048000) { goto SYS_MMAP_FAIL; } // bad addr
   if (pg_ofs (upage) != 0) { goto SYS_MMAP_FAIL; } // upage必须是页面起始地址
   void *start_upage = upage;
   struct file *target_file = process_get_file (fd);
@@ -297,6 +317,35 @@ sys_munmap (mapid_t mapid)
   return;
 }
 
+bool 
+sys_pin_buffer (const void *buffer, size_t size)
+{
+  struct thread *cur_thread = thread_current ();
+  void *upage = pg_round_down (buffer);
+  while (upage < buffer + size)
+    {
+      vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
+      if (spte == NULL || !vm_pin_page_by_spte (spte)) 
+        return false;
+      upage += PGSIZE;
+    }
+  return true;
+}
+
+bool 
+sys_unpin_buffer (const void *buffer, size_t size)
+{
+  struct thread *cur_thread = thread_current ();
+  void *upage = pg_round_down (buffer);
+  while (upage < buffer + size)
+    {
+      vm_spte *spte = vm_spt_find (cur_thread->spt, upage);
+      if (spte == NULL || !vm_unpin_page_by_spte (spte)) 
+        return false;
+      upage += PGSIZE;
+    }
+  return true;
+}
 
 static void 
 check_uaddr (const uint8_t *uaddr) 

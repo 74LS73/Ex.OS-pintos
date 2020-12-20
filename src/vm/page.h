@@ -23,6 +23,7 @@ enum supplemental_page_table_entry_type
     _SPTE_FOR_FILE,
     _SPTE_FOR_STACK,
     _SPTE_FOR_SWAP,
+    _SPTE_ON_FRAME,
   };
 
 typedef enum supplemental_page_table_entry_type vm_spte_type;
@@ -30,6 +31,7 @@ typedef enum supplemental_page_table_entry_type vm_spte_type;
 struct supplemental_page_table_entry
   {
     uint8_t *upage;
+    uint8_t *kpage;
     vm_spte_type type;
     struct file *file;
     off_t file_ofs;
@@ -55,7 +57,11 @@ vm_spte *vm_spte_create_for_stack (uint8_t *);
 
 bool vm_spte_set_for_swap (vm_spt *, uint8_t *upage, block_sector_t);
 
-bool vm_load_page_by_spte (vm_spte *spte);
+void *vm_load_page_by_spte (vm_spte *spte);
+
+bool vm_pin_page_by_spte (vm_spte *spte);
+bool vm_unpin_page_by_spte (vm_spte *spte);
 
 #endif
+
 

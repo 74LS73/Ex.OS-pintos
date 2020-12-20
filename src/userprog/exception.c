@@ -178,7 +178,7 @@ page_fault (struct intr_frame *f)
   // 否则 
   // else
   spte = vm_spt_find (cur_thread->spt, upage);
-  if (spte != NULL && vm_load_page_by_spte(spte)) 
+  if (spte != NULL && vm_load_page_by_spte(spte) != NULL) 
     {
       // 没问题
       return;
@@ -207,4 +207,5 @@ ERROR:
           user ? "user" : "kernel");
   kill (f);
 }
+
 

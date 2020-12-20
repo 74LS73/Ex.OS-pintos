@@ -13,6 +13,8 @@ static struct hash frame_map;
 static struct list frame_clock;
 // 时针
 static struct list_elem *clock_ptr;
+// 锁
+static struct lock frame_lock;
 
 // FTE：页框项
 struct frame_table_entry
@@ -20,7 +22,7 @@ struct frame_table_entry
     uint8_t *kpage;   // 逻辑地址
     uint8_t *upage;   // 虚拟地址
     struct thread *t;
-    // block_sector_t start_sector;  // 如果被放入交换区，记录起始sector
+    bool pinned;             // 系统调用时某些页面不能被淘汰
     struct hash_elem helem;  // hash元素，参考hash.h
     struct list_elem lelem;  // 循环列表，for 时钟页面置换算法
   };
@@ -31,7 +33,7 @@ unsigned frame_hash_hash_func (const struct hash_elem *e, void *aux);
 bool frame_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux);
 void frame_hash_destory_func (struct hash_elem *e, void *aux);
 
-void *feviction_get_fte (uint32_t *pagedir);
+vm_fte *frame_eviction (uint32_t *pagedir);
 
 void 
 frame_init () 
@@ -39,30 +41,36 @@ frame_init ()
   hash_init (&frame_map, frame_hash_hash_func, frame_hash_less_func, NULL);
   list_init (&frame_clock);
   clock_ptr = list_end (&frame_clock);
+  lock_init (&frame_lock);
 }
 
 void *
 falloc_get_frame (enum palloc_flags flags, void *upage)
 {
+  lock_acquire (&frame_lock);
   struct thread *cur_thread = thread_current ();
   uint8_t *kpage = palloc_get_page (flags | PAL_USER);
   if (kpage == NULL)
     {
       // eviction
-      feviction_get_fte (cur_thread->pagedir);
+      lock_release (&frame_lock);
+      frame_eviction (cur_thread->pagedir);
       kpage = palloc_get_page (flags | PAL_USER);
+      lock_acquire (&frame_lock);
     }
-
+  
   vm_fte *fte = malloc(sizeof (vm_fte));
   fte->kpage = kpage;
   fte->upage = upage;
   fte->t = thread_current ();
+  fte->pinned = false;
   struct hash_elem *old = hash_insert (&frame_map, &fte->helem);
   list_insert (clock_ptr, &fte->lelem);
   if (old != NULL)
     {
-      // TODO 出错
-    }   
+      return NULL;
+    }
+  lock_release (&frame_lock);
   return kpage;
 }
 
@@ -70,6 +78,7 @@ falloc_get_frame (enum palloc_flags flags, void *upage)
 void 
 falloc_free_frame (void *kpage)
 {
+  lock_acquire (&frame_lock);
   vm_fte *tmp = malloc(sizeof (vm_fte));
   tmp->kpage = kpage;
   struct hash_elem *he = hash_delete (&frame_map, &tmp->helem);
@@ -80,8 +89,54 @@ falloc_free_frame (void *kpage)
     }
   vm_fte *fte = hash_entry (he, vm_fte, helem);
   list_remove (&fte->lelem);
+  hash_delete (&frame_map, &fte->helem);
   palloc_free_page (kpage);
+  lock_release (&frame_lock);
   return;
+}
+
+vm_fte *
+fmap_remove_fte (void *kpage)
+{
+  lock_acquire (&frame_lock);
+  vm_fte *tmp = malloc(sizeof (vm_fte));
+  tmp->kpage = kpage;
+  struct hash_elem *he = hash_delete (&frame_map, &tmp->helem);
+  free (tmp);
+  if (he == NULL)
+    return NULL;
+  vm_fte *fte = hash_entry (he, vm_fte, helem);
+  list_remove (&fte->lelem);
+  hash_delete (&frame_map, &fte->helem);
+  lock_release (&frame_lock);
+  return fte;
+}
+
+
+bool 
+frame_pin (void *kpage)
+{
+  vm_fte *tmp = malloc(sizeof (vm_fte));
+  tmp->kpage = kpage;
+  struct hash_elem *he = hash_find (&frame_map, &tmp->helem);
+  if (he == NULL) return false;
+  free (tmp);
+  vm_fte *fte = hash_entry (he, vm_fte, helem);
+  fte->pinned = true;
+  return true;
+}
+
+bool 
+frame_unpin (void *kpage)
+{
+  vm_fte *tmp = malloc(sizeof (vm_fte));
+  tmp->kpage = kpage;
+  struct hash_elem *he = hash_find (&frame_map, &tmp->helem);
+  if (he == NULL) return false;
+  free (tmp);
+  vm_fte *fte = hash_entry (he, vm_fte, helem);
+  fte->pinned = false;
+  return true;
 }
 
 void 
@@ -94,32 +149,31 @@ clock_point_to_next ()
     clock_ptr = list_begin (&frame_clock);
 }
 
-void *
-feviction_get_fte (uint32_t *pagedir)
+vm_fte *
+frame_eviction (uint32_t *pagedir)
 {
+
   while (true)
     {
       clock_point_to_next ();
       vm_fte *fte = list_entry (clock_ptr, vm_fte, lelem);
       void *upage = fte->upage;
-      // uint32_t *pagedir = fte->t->pagedir;
+      // uint32_t *pagedir = fte->t->pagedir; 不对，显然是针对自己的页目录
+      if (fte->pinned)
+        continue;
       // is R == 1
-      if (pagedir_is_accessed (pagedir, upage))
-        {
-          pagedir_set_accessed (pagedir, upage, false);
-        }
+      else if (pagedir_is_accessed (pagedir, upage))
+        pagedir_set_accessed (pagedir, upage, false);
       else 
         {
           block_sector_t start_sector = fswap_put_frame (fte->kpage);
-          // palloc_free_page(fte->kpage);
           // 从页目录中删除
           pagedir_clear_page (fte->t->pagedir, fte->upage);
-          // printf("arrive here!\n");
           clock_point_to_next ();
           falloc_free_frame (fte->kpage);
           vm_spte_set_for_swap (fte->t->spt, fte->upage, start_sector);
           // TODO
-          return fte->kpage;
+          return fte;
         }
     }
   
@@ -153,4 +207,5 @@ frame_hash_destory_func (struct hash_elem *e, void *aux)
   // TODO
   free (fte);
 }
+
 

@@ -80,11 +80,13 @@ vm_spte_set_for_swap (vm_spt *spt, uint8_t *upage, block_sector_t start_sector)
   if (spte == NULL) return false;
   spte->type = _SPTE_FOR_SWAP;
   spte->upage = upage;
+  spte->kpage = NULL;
   spte->start_sector = start_sector;
   return true;
 }
 
-bool
+// 加载页面，返回物理地址
+void *
 vm_load_page_by_spte (vm_spte *spte) 
 {
   switch (spte->type)
@@ -100,23 +102,25 @@ vm_load_page_by_spte (vm_spte *spte)
 
         uint8_t *kpage = falloc_get_frame (PAL_USER, upage);
         if (kpage == NULL)
-          return false;
+          return NULL;
 
         /* Load this page. */
         file_seek (file, ofs);
         if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
           {
             falloc_free_frame (kpage);
-            return false; 
+            return NULL; 
           }
         memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
         if (!install_page (upage, kpage, writable)) 
           {
             falloc_free_frame (kpage);
-            return false; 
+            return NULL; 
           }
-        return true;
+        spte->kpage = kpage;
+        spte->type = _SPTE_ON_FRAME;
+        return kpage;
       }
     case _SPTE_FOR_STACK:
       {
@@ -126,9 +130,11 @@ vm_load_page_by_spte (vm_spte *spte)
         if (!install_page (upage, kpage, writable)) 
           {
             falloc_free_frame (kpage);
-            return false; 
+            return NULL; 
           }
-        return true;
+        spte->kpage = kpage;
+        spte->type = _SPTE_ON_FRAME;
+        return kpage;
       }
     case _SPTE_FOR_SWAP:
       {
@@ -140,18 +146,40 @@ vm_load_page_by_spte (vm_spte *spte)
         if (!install_page (upage, kpage, writable)) 
           {
             falloc_free_frame (kpage);
-            return false; 
+            return NULL; 
           }
-        // spte->type = _SPTE_FOR_STACK;
-        return true;
+        spte->kpage = kpage;
+        spte->type = _SPTE_ON_FRAME;
+        return kpage;
       }
     default:
-      {}
+      {return NULL; }
     }
 
   NOT_REACHED ();
-  return false;
+  return NULL;
 }
+
+bool 
+vm_pin_page_by_spte (vm_spte *spte)
+{
+  void *kpage = spte->kpage;
+  if (kpage == NULL)
+    kpage = vm_load_page_by_spte (spte);
+  ASSERT (kpage != NULL);
+  return frame_pin (kpage);
+}
+
+bool 
+vm_unpin_page_by_spte (vm_spte *spte)
+{
+  void *kpage = spte->kpage;
+  if (kpage == NULL)
+    return true;    // 本来就不在
+
+  return frame_unpin (kpage);
+}
+
 
 // 这个似乎主要在这边用到了
 /* Adds a mapping from user virtual address UPAGE to kernel
@@ -195,16 +223,19 @@ spt_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, void *
 void spt_hash_destory_func (struct hash_elem *e, void *aux)
 {
   vm_spte *spte = hash_entry(e, vm_spte, elem);
-  // TODO
   switch (spte->type)
   {
   case _SPTE_FOR_SWAP:
-    fswap_free_frame(spte->start_sector);
+    fswap_free_frame (spte->start_sector);
+    break;
+  case _SPTE_ON_FRAME:
+    fmap_remove_fte (spte->kpage);
     break;
   default:
     break;
   }
   free (spte);
 }
+
 
 
