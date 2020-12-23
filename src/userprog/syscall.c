@@ -143,7 +143,7 @@ syscall_handler (struct intr_frame *f)
         check_uaddr_size (buffer, size);
         sys_pin_buffer (buffer, size);
         f->eax = sys_write (fd, buffer, size);
-        // sys_unpin_buffer (buffer, size);
+        sys_unpin_buffer (buffer, size);
         lock_release (&filesys_lock);
         break;
        }
